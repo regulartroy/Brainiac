@@ -17,13 +17,80 @@ if (!googleApiKey) {
 
 const normalizeEntityName = (value: string) => value.trim().replace(/\s+/g, " ");
 
-const normalizeTaskEntry = (task: unknown): string => {
-  if (typeof task === "string") return task.trim();
-  if (task && typeof task === "object" && "description" in task) {
-    const description = (task as { description?: unknown }).description;
-    if (typeof description === "string") return description.trim();
+type ExtractedTask = {
+  description: string;
+  place?: string;
+  startAt?: string;
+  endAt?: string;
+  linked_entities?: string[];
+};
+
+type ExtractedRelationship = {
+  from_entity: string;
+  to_entity: string;
+  type: string;
+  summary: string;
+};
+
+const normalizeIsoMaybe = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Date.parse(trimmed);
+  return Number.isNaN(parsed) ? undefined : new Date(parsed).toISOString();
+};
+
+const normalizeTaskEntry = (task: unknown): ExtractedTask | null => {
+  if (typeof task === "string") {
+    const description = task.trim();
+    return description ? {description} : null;
   }
-  return "";
+  if (!task || typeof task !== "object") return null;
+  const candidate = task as Record<string, unknown>;
+  const description = typeof candidate.description === "string" ?
+    candidate.description.trim() :
+    typeof candidate.title === "string" ? candidate.title.trim() : "";
+  if (!description) return null;
+
+  const place = typeof candidate.place === "string" ? candidate.place.trim() : "";
+  const startAt = normalizeIsoMaybe(
+    candidate.startAt ?? candidate.startsAt ?? candidate.scheduledAt ?? candidate.dueDate,
+  );
+  const endAt = normalizeIsoMaybe(candidate.endAt ?? candidate.endsAt);
+  const linked = Array.isArray(candidate.linked_entities) ?
+    candidate.linked_entities
+      .map((item) => typeof item === "string" ? item.trim() : "")
+      .filter((item) => item.length > 0) :
+    undefined;
+
+  return {
+    description,
+    ...(place ? {place} : {}),
+    ...(startAt ? {startAt} : {}),
+    ...(endAt ? {endAt} : {}),
+    ...(linked && linked.length > 0 ? {linked_entities: linked} : {}),
+  };
+};
+
+const normalizeRelationship = (item: unknown): ExtractedRelationship | null => {
+  if (!item || typeof item !== "object") return null;
+  const candidate = item as Record<string, unknown>;
+  const from = typeof candidate.from_entity === "string" ?
+    candidate.from_entity.trim() :
+    typeof candidate.from === "string" ? candidate.from.trim() : "";
+  const to = typeof candidate.to_entity === "string" ?
+    candidate.to_entity.trim() :
+    typeof candidate.to === "string" ? candidate.to.trim() : "";
+  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return null;
+  const type = typeof candidate.type === "string" && candidate.type.trim() ?
+    candidate.type.trim() :
+    "related";
+  const summary = typeof candidate.summary === "string" && candidate.summary.trim() ?
+    candidate.summary.trim() :
+    typeof candidate.description === "string" && candidate.description.trim() ?
+      candidate.description.trim() :
+      `${from} related to ${to}`;
+  return {from_entity: from, to_entity: to, type, summary};
 };
 
 const normalizeReviewItem = (item: unknown): { id: string; label: string; type: string } | null => {
@@ -43,7 +110,12 @@ const normalizeReviewItem = (item: unknown): { id: string; label: string; type: 
 const callGeminiExtraction = async (
   transcript: string,
   selectedReviewItems: Array<{ id: string; label: string; type: string }>,
-): Promise<{ tasks: string[]; needs_context: boolean; review_items: Array<{ id: string; label: string; type: string }> }> => {
+): Promise<{
+  tasks: ExtractedTask[];
+  needs_context: boolean;
+  review_items: Array<{ id: string; label: string; type: string }>;
+  relationships: ExtractedRelationship[];
+}> => {
   const confirmedEntityNote = selectedReviewItems.length > 0 ?
     `\nConfirmed entity matches from the user: ${selectedReviewItems.map((item) => item.label).join(", ")}. Use these exact names when resolving ambiguous references.` :
     "";
@@ -51,11 +123,17 @@ const callGeminiExtraction = async (
   const prompt = `You are a routing agent for a Second Brain graph database.
 Analyze the transcript and return valid JSON only.
 Requirements:
-1. Extract actionable tasks as an array of strings or objects with a "description" field.
+1. Extract actionable tasks as an array of strings or objects with:
+   - "description" (required)
+   - "place" when a venue/location is present
+   - "startAt" and optional "endAt" as ISO-8601 when a date/time is present
+   - "linked_entities" when specific people/orgs/places are named for that task
 2. Include a "needs_context" boolean when the note references vague references like "he", "the venue", or missing names.
 3. Include a "review_items" array of entities with id, label, and type when the text includes candidate people, organizations, projects, venues, or equipment.
-4. If the user confirmed entity matches, prefer those labels instead of guessing.
-5. Do not add explanation text outside JSON.
+4. Include a "relationships" array of pairs when entities are related, each with from_entity, to_entity, type, and summary.
+5. If the user confirmed entity matches, prefer those labels instead of guessing.
+6. Do not invent times, places, or relationships that are not supported by the transcript.
+7. Do not add explanation text outside JSON.
 ${confirmedEntityNote}
 Transcript: ${transcript}`;
 
@@ -104,7 +182,7 @@ Transcript: ${transcript}`;
   const tasks = Array.isArray(parsed.tasks) ?
     parsed.tasks
       .map((task: unknown) => normalizeTaskEntry(task))
-      .filter((task: string) => task.length > 0) :
+      .filter((task: ExtractedTask | null): task is ExtractedTask => task !== null) :
     [];
 
   const reviewItems = Array.isArray(parsed.review_items) ?
@@ -115,12 +193,19 @@ Transcript: ${transcript}`;
       ) :
     [];
 
+  const relationships = Array.isArray(parsed.relationships) ?
+    parsed.relationships
+      .map((item: unknown) => normalizeRelationship(item))
+      .filter((item: ExtractedRelationship | null): item is ExtractedRelationship => item !== null) :
+    [];
+
   const needsContext = Boolean(parsed.needs_context || reviewItems.length > 0);
 
   return {
     tasks,
     needs_context: needsContext,
     review_items: reviewItems,
+    relationships,
   };
 };
 
@@ -169,9 +254,10 @@ const processGraphFlow = async ({
 
   if (reviewMode) {
     return {
-      tasks: output.tasks,
+      tasks: output.tasks.map((task) => task.description),
       needs_context: output.needs_context,
       review_items: output.review_items,
+      relationships: output.relationships,
     };
   }
 
@@ -197,9 +283,24 @@ const processGraphFlow = async ({
       });
     }
   }
+  for (const relationship of output.relationships) {
+    for (const label of [relationship.from_entity, relationship.to_entity]) {
+      const entityKey = normalizeEntityName(label).toLowerCase();
+      if (!entityRefs.has(entityKey)) {
+        entityRefs.set(entityKey, {
+          name: label,
+          type: "entity",
+          summary: `Identified from relationship: ${label}`,
+        });
+      }
+    }
+  }
+
+  const entityIdFor = (name: string) =>
+    normalizeEntityName(name).toLowerCase().replace(/[^a-z0-9]+/g, "_");
 
   for (const entity of entityRefs.values()) {
-    const entityId = normalizeEntityName(entity.name).toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    const entityId = entityIdFor(entity.name);
     const entityRef = db.collection("entities").doc(entityId);
     batch.set(entityRef, {
       name: entity.name,
@@ -209,23 +310,54 @@ const processGraphFlow = async ({
     }, {merge: true});
   }
 
+  // Persist explicit relationship edges from extraction (not only entities/tasks).
+  for (const relationship of output.relationships) {
+    const relationshipRef = db.collection("relationships").doc();
+    batch.set(relationshipRef, {
+      from_entity: relationship.from_entity,
+      to_entity: relationship.to_entity,
+      from_entity_id: entityIdFor(relationship.from_entity),
+      to_entity_id: entityIdFor(relationship.to_entity),
+      type: relationship.type,
+      summary: relationship.summary,
+      createdAt: timestamp,
+      last_updated: timestamp,
+      source_capture_id: captureRef.id,
+    });
+  }
+
   for (const task of output.tasks) {
+    const linked = task.linked_entities && task.linked_entities.length > 0 ?
+      task.linked_entities :
+      output.review_items.map((item) => item.label);
+    const linkedEntityIds = linked.map((label) => entityIdFor(label));
     const taskRef = db.collection("action_items").doc();
+    // Schedule fields live on action_items (smaller change than a parallel
+    // appointments collection). Calendar UI only surfaces rows with startAt.
     batch.set(taskRef, {
-      description: task,
-      linked_entities: output.review_items.map((item) => item.label),
+      description: task.description,
+      linked_entities: linked,
+      linked_entity_ids: linkedEntityIds,
       status: output.needs_context ? "pending_review" : "open",
       createdAt: timestamp,
       source_capture_id: captureRef.id,
+      ...(task.place ? {place: task.place} : {}),
+      ...(task.startAt ? {
+        startAt: task.startAt,
+        scheduledAt: task.startAt,
+        dueDate: task.startAt,
+      } : {}),
+      ...(task.endAt ? {endAt: task.endAt} : {}),
     });
   }
 
   await batch.commit();
 
   return {
-    tasks: output.tasks,
+    tasks: output.tasks.map((task) => task.description),
     needs_context: output.needs_context,
     review_items: output.review_items,
+    relationships: output.relationships,
   };
 };
 

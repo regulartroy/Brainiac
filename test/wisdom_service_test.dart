@@ -106,19 +106,19 @@ void main() {
 
     final route = service.estimateRoutePlan(
       entries: [
-        const CalendarEntry(
+        CalendarEntry(
           title: 'Acme call',
           client: 'Acme',
           category: 'Client work',
           place: '123 Market Street',
-          startsAt: null,
+          startsAt: DateTime(2026, 9, 10, 9),
         ),
-        const CalendarEntry(
+        CalendarEntry(
           title: 'Studio sprint',
           client: 'Studio A',
           category: 'Project',
           place: '42 West Ave',
-          startsAt: null,
+          startsAt: DateTime(2026, 9, 10, 14),
         ),
       ],
     );
@@ -155,5 +155,72 @@ void main() {
 
     expect(reply.answer, contains('Acme'));
     expect(reply.highlights, isNotEmpty);
+  });
+
+  test('compileCalendar omits undated tasks and never invents place or now', () {
+    final service = WisdomService();
+    final fixedNow = DateTime(2026, 9, 9, 12);
+
+    final calendar = service.compileCalendar(
+      tasks: [
+        {
+          'description': 'Undated follow-up',
+          'linked_entities': ['Acme'],
+          'status': 'open',
+          'place': 'Should not appear without a start',
+        },
+        {
+          'description': 'Dated without invented place',
+          'linked_entities': ['Acme'],
+          'status': 'open',
+          'startAt': '2026-09-12T10:00:00Z',
+        },
+        {
+          'description': 'Add Sam as a person',
+          'linked_entities': ['Sam'],
+          'status': 'open',
+          'startAt': '2026-09-12T11:00:00Z',
+          'place': 'Ignored person-add',
+        },
+      ],
+      now: fixedNow,
+    );
+
+    expect(calendar, hasLength(1));
+    expect(calendar.first.title, 'Dated without invented place');
+    expect(calendar.first.place, isEmpty);
+    expect(calendar.first.startsAt.isAtSameMomentAs(DateTime.parse('2026-09-12T10:00:00Z')), isTrue);
+    expect(
+      calendar.any((entry) => entry.place == 'Location TBD'),
+      isFalse,
+    );
+    expect(
+      calendar.any((entry) => entry.startsAt.isAtSameMomentAs(fixedNow)),
+      isFalse,
+    );
+  });
+
+  test('compileCalendar accepts appointment docs with endAt and entity ids', () {
+    final service = WisdomService();
+
+    final calendar = service.compileCalendar(
+      tasks: const [],
+      appointments: [
+        {
+          'title': 'Site walkthrough',
+          'place': 'Warehouse B',
+          'startAt': '2026-09-15T09:00:00Z',
+          'endAt': '2026-09-15T10:30:00Z',
+          'linked_entity_ids': ['roger', 'warehouse_b'],
+          'client': 'Roger',
+          'category': 'Visit',
+        },
+      ],
+    );
+
+    expect(calendar, hasLength(1));
+    expect(calendar.first.place, 'Warehouse B');
+    expect(calendar.first.endsAt, isNotNull);
+    expect(calendar.first.linkedEntityIds, containsAll(['roger', 'warehouse_b']));
   });
 }

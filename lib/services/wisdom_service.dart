@@ -53,20 +53,26 @@ class CalendarEntry {
     required this.category,
     required this.place,
     required this.startsAt,
+    this.endsAt,
+    this.linkedEntityIds = const [],
   });
 
   final String title;
   final String client;
   final String category;
   final String place;
-  final DateTime? startsAt;
+  final DateTime startsAt;
+  final DateTime? endsAt;
+  final List<String> linkedEntityIds;
 
   Map<String, dynamic> toJson() => {
     'title': title,
     'client': client,
     'category': category,
     'place': place,
-    'startsAt': startsAt?.toIso8601String(),
+    'startsAt': startsAt.toIso8601String(),
+    'endsAt': endsAt?.toIso8601String(),
+    'linkedEntityIds': linkedEntityIds,
   };
 }
 
@@ -282,16 +288,38 @@ class WisdomService {
     );
   }
 
+  /// Builds calendar entries from real schedule data only.
+  ///
+  /// Schedule schema (prefer these fields on `action_items`, or pass docs from
+  /// an `appointments` collection via [appointments]):
+  /// - `startAt` / `startsAt` / `scheduledAt` / `dueDate` (required ISO string)
+  /// - `endAt` / `endsAt` (optional ISO string)
+  /// - `place` (optional; never invented — empty when unknown)
+  /// - `linked_entities` / `linked_entity_ids` (entity names or ids)
+  /// - `description` or `title`, plus optional `category` / `client`
+  ///
+  /// Undated items are omitted. Place is never defaulted to "Location TBD".
+  /// `now` is unused for invention; kept for API compatibility / callers.
   List<CalendarEntry> compileCalendar({
     required List<Map<String, dynamic>> tasks,
+    List<Map<String, dynamic>> appointments = const [],
     DateTime? now,
   }) {
-    final referenceNow = now ?? DateTime.now();
     final entries = <CalendarEntry>[];
-    final seenDescriptions = <String>{};
+    final seenKeys = <String>{};
 
-    for (final task in tasks) {
-      final description = (task['description'] ?? '').toString().trim();
+    DateTime? parseScheduleInstant(dynamic raw) {
+      if (raw == null) return null;
+      if (raw is DateTime) return raw;
+      final text = raw.toString().trim();
+      if (text.isEmpty) return null;
+      return DateTime.tryParse(text);
+    }
+
+    void consider(Map<String, dynamic> item) {
+      final description = (item['description'] ?? item['title'] ?? '')
+          .toString()
+          .trim();
       final normalizedDescription = description
           .toLowerCase()
           .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
@@ -306,28 +334,41 @@ class WisdomService {
             r'\bas\s+a?\s*person\b',
             caseSensitive: false,
           ).hasMatch(description);
-      if (isPersonAdd ||
-          normalizedDescription.isEmpty ||
-          !seenDescriptions.add(normalizedDescription)) {
-        continue;
+      if (isPersonAdd || normalizedDescription.isEmpty) {
+        return;
       }
-      final linked = (task['linked_entities'] as List<dynamic>? ?? const [])
-          .whereType<String>()
-          .map((value) => value.trim())
+
+      final startsAt = parseScheduleInstant(
+        item['startAt'] ??
+            item['startsAt'] ??
+            item['scheduledAt'] ??
+            item['dueDate'],
+      );
+      // Real calendar only: omit undated / incomplete schedule rows.
+      if (startsAt == null) {
+        return;
+      }
+
+      final endsAt = parseScheduleInstant(item['endAt'] ?? item['endsAt']);
+      final place = (item['place'] ?? '').toString().trim();
+      final linked = (item['linked_entities'] as List<dynamic>? ??
+              item['linked_entity_ids'] as List<dynamic>? ??
+              const [])
+          .map((value) => value.toString().trim())
           .where((value) => value.isNotEmpty)
           .toList();
-      final category = (task['category'] ?? task['type'] ?? 'General')
+      final category = (item['category'] ?? item['type'] ?? 'General')
           .toString()
           .trim();
-      final client = (task['client'] ?? linked.firstOrNull ?? 'Independent')
+      final client = (item['client'] ?? linked.firstOrNull ?? 'Independent')
           .toString()
           .trim();
-      final place = (task['place'] ?? 'Location TBD').toString().trim();
-      final startAtRaw =
-          task['startAt'] ?? task['scheduledAt'] ?? task['dueDate'];
-      final startsAt = startAtRaw is String && startAtRaw.isNotEmpty
-          ? DateTime.tryParse(startAtRaw)
-          : null;
+
+      final dedupeKey =
+          '$normalizedDescription|${startsAt.toIso8601String()}|$place';
+      if (!seenKeys.add(dedupeKey)) {
+        return;
+      }
 
       entries.add(
         CalendarEntry(
@@ -335,17 +376,21 @@ class WisdomService {
           client: client,
           category: category,
           place: place,
-          startsAt: startsAt ?? referenceNow,
+          startsAt: startsAt,
+          endsAt: endsAt,
+          linkedEntityIds: linked,
         ),
       );
     }
 
-    entries.sort((a, b) {
-      final left = a.startsAt ?? DateTime.now();
-      final right = b.startsAt ?? DateTime.now();
-      return left.compareTo(right);
-    });
+    for (final appointment in appointments) {
+      consider(appointment);
+    }
+    for (final task in tasks) {
+      consider(task);
+    }
 
+    entries.sort((a, b) => a.startsAt.compareTo(b.startsAt));
     return entries;
   }
 
@@ -414,8 +459,9 @@ class WisdomService {
     final highlights = relevant.map((task) {
       final description = (task['description'] ?? '').toString();
       final category = (task['category'] ?? 'General').toString();
-      final place = (task['place'] ?? 'Location TBD').toString();
-      return '$category • $description • $place';
+      final place = (task['place'] ?? '').toString().trim();
+      final placeLabel = place.isEmpty ? 'No place set' : place;
+      return '$category • $description • $placeLabel';
     }).toList();
 
     if (highlights.isEmpty) {
