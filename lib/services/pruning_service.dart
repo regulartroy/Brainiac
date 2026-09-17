@@ -3,14 +3,17 @@ class EntityRecord {
     required this.name,
     required this.type,
     required this.summary,
+    this.id = '',
   });
 
+  final String id;
   final String name;
   final String type;
   final String summary;
 
-  factory EntityRecord.fromMap(Map<String, dynamic> map) {
+  factory EntityRecord.fromMap(Map<String, dynamic> map, {String id = ''}) {
     return EntityRecord(
+      id: id,
       name: map['name']?.toString() ?? '',
       type: map['type']?.toString() ?? 'concept',
       summary: map['summary']?.toString() ?? '',
@@ -30,8 +33,42 @@ class EntityGroup {
   final List<String> names;
 }
 
+class LinkedEntitiesRewrite {
+  const LinkedEntitiesRewrite({
+    required this.linkedEntities,
+    required this.linkedEntityIds,
+    required this.changed,
+  });
+
+  final List<String> linkedEntities;
+  final List<String> linkedEntityIds;
+  final bool changed;
+}
+
+class RelationshipRewrite {
+  const RelationshipRewrite({
+    required this.fromEntity,
+    required this.toEntity,
+    required this.fromEntityId,
+    required this.toEntityId,
+    required this.type,
+    required this.drop,
+    required this.changed,
+    required this.edgeKey,
+  });
+
+  final String fromEntity;
+  final String toEntity;
+  final String fromEntityId;
+  final String toEntityId;
+  final String type;
+  final bool drop;
+  final bool changed;
+  final String edgeKey;
+}
+
 class PruningService {
-  static String _normalizeEntityKey(String value) {
+  static String normalizeEntityKey(String value) {
     final normalized = value
         .trim()
         .toLowerCase()
@@ -41,9 +78,21 @@ class PruningService {
     return normalized;
   }
 
-  static String _canonicalizeName(String value) {
+  static String canonicalizeName(String value) {
     return value.trim().replaceAll(RegExp(r'\s+'), ' ');
   }
+
+  static String entityIdForName(String name) {
+    return canonicalizeName(name)
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+  }
+
+  // Keep private aliases used by existing call sites / tests via instance methods.
+  String _normalizeEntityKey(String value) => normalizeEntityKey(value);
+
+  String _canonicalizeName(String value) => canonicalizeName(value);
 
   List<EntityGroup> groupDuplicateEntities(List<EntityRecord> entities) {
     final grouped = <String, List<EntityRecord>>{};
@@ -75,6 +124,142 @@ class PruningService {
 
     result.sort((a, b) => a.canonicalName.compareTo(b.canonicalName));
     return result;
+  }
+
+  /// Rewrite action-item entity name/id lists when aliases merge into [canonicalName]/[canonicalId].
+  LinkedEntitiesRewrite rewriteLinkedEntities({
+    required List<String> linkedEntities,
+    required List<String> linkedEntityIds,
+    required Set<String> aliasNames,
+    required Set<String> aliasIds,
+    required String canonicalName,
+    required String canonicalId,
+  }) {
+    final aliasKeys = aliasNames
+        .map(normalizeEntityKey)
+        .where((key) => key.isNotEmpty)
+        .toSet();
+
+    final names = <String>[];
+    var changed = false;
+
+    for (final value in linkedEntities) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) {
+        changed = true;
+        continue;
+      }
+      if (aliasKeys.contains(normalizeEntityKey(trimmed))) {
+        if (!names.contains(canonicalName)) {
+          names.add(canonicalName);
+        }
+        if (trimmed != canonicalName) changed = true;
+      } else if (!names.contains(trimmed)) {
+        names.add(trimmed);
+      } else {
+        changed = true;
+      }
+    }
+    if (names.length !=
+        linkedEntities.where((value) => value.trim().isNotEmpty).length) {
+      changed = true;
+    }
+
+    final ids = <String>[];
+    for (final value in linkedEntityIds) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) {
+        changed = true;
+        continue;
+      }
+      if (aliasIds.contains(trimmed)) {
+        if (!ids.contains(canonicalId)) {
+          ids.add(canonicalId);
+        }
+        if (trimmed != canonicalId) changed = true;
+      } else if (!ids.contains(trimmed)) {
+        ids.add(trimmed);
+      } else {
+        changed = true;
+      }
+    }
+    if (ids.length !=
+        linkedEntityIds.where((value) => value.trim().isNotEmpty).length) {
+      changed = true;
+    }
+
+    return LinkedEntitiesRewrite(
+      linkedEntities: names,
+      linkedEntityIds: ids,
+      changed: changed,
+    );
+  }
+
+  /// Remap a relationship edge through alias name/id maps. Self-loops are dropped.
+  RelationshipRewrite rewriteRelationship({
+    required String fromEntity,
+    required String toEntity,
+    required String fromEntityId,
+    required String toEntityId,
+    required String type,
+    required Map<String, String> canonicalNameByKey,
+    required Map<String, String> canonicalIdByAlias,
+  }) {
+    var fromName = fromEntity.trim();
+    var toName = toEntity.trim();
+    var fromId = fromEntityId.trim();
+    var toId = toEntityId.trim();
+    final edgeType = type.trim().isEmpty ? 'related' : type.trim();
+    var changed = false;
+
+    final fromKey = normalizeEntityKey(fromName);
+    final toKey = normalizeEntityKey(toName);
+    if (fromKey.isNotEmpty && canonicalNameByKey.containsKey(fromKey)) {
+      final next = canonicalNameByKey[fromKey]!;
+      if (next != fromName) {
+        fromName = next;
+        changed = true;
+      }
+    }
+    if (toKey.isNotEmpty && canonicalNameByKey.containsKey(toKey)) {
+      final next = canonicalNameByKey[toKey]!;
+      if (next != toName) {
+        toName = next;
+        changed = true;
+      }
+    }
+    if (fromId.isNotEmpty && canonicalIdByAlias.containsKey(fromId)) {
+      final next = canonicalIdByAlias[fromId]!;
+      if (next != fromId) {
+        fromId = next;
+        changed = true;
+      }
+    }
+    if (toId.isNotEmpty && canonicalIdByAlias.containsKey(toId)) {
+      final next = canonicalIdByAlias[toId]!;
+      if (next != toId) {
+        toId = next;
+        changed = true;
+      }
+    }
+
+    final fromNorm = normalizeEntityKey(fromName);
+    final toNorm = normalizeEntityKey(toName);
+    final drop = fromName.isEmpty ||
+        toName.isEmpty ||
+        fromNorm == toNorm ||
+        (fromId.isNotEmpty && toId.isNotEmpty && fromId == toId);
+
+    return RelationshipRewrite(
+      fromEntity: fromName,
+      toEntity: toName,
+      fromEntityId: fromId,
+      toEntityId: toId,
+      type: edgeType,
+      drop: drop,
+      changed: changed,
+      edgeKey: '$fromNorm|$toNorm|${normalizeEntityKey(edgeType)}',
+    );
   }
 
   List<String> buildDailyQuestions(List<EntityRecord> entities) {
@@ -152,7 +337,7 @@ class PruningService {
       final examples = (existing['_examples'] as List<String>?) ?? <String>[];
       examples.add(description);
       existing['_examples'] = examples;
-      if (!linkedEntities.isEmpty &&
+      if (linkedEntities.isNotEmpty &&
           !((existing['linked_entities'] as List<String>).contains(
             primaryEntity,
           ))) {
