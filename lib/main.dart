@@ -108,8 +108,7 @@ class _MasterCalendarPageState extends State<MasterCalendarPage> {
           entry.client.toLowerCase().contains(_clientFilter.toLowerCase()) ||
           entry.title.toLowerCase().contains(_clientFilter.toLowerCase());
       final isWithinWindow =
-          entry.startsAt == null ||
-          (!entry.startsAt!.isBefore(now) && !entry.startsAt!.isAfter(horizon));
+          !entry.startsAt.isBefore(now) && !entry.startsAt.isAfter(horizon);
       return matchesClient && isWithinWindow;
     }).toList();
 
@@ -168,15 +167,17 @@ class _MasterCalendarPageState extends State<MasterCalendarPage> {
             Expanded(
               child: filteredEntries.isEmpty
                   ? const Center(
-                      child: Text('No entries match this client window.'),
+                      child: Text('No scheduled appointments in this window.'),
                     )
                   : ListView.builder(
                       itemCount: filteredEntries.length,
                       itemBuilder: (context, index) {
                         final entry = filteredEntries[index];
-                        final dateLabel = entry.startsAt == null
-                            ? 'Flexible timing'
-                            : '${entry.startsAt!.day}/${entry.startsAt!.month} ${entry.startsAt!.hour.toString().padLeft(2, '0')}:${entry.startsAt!.minute.toString().padLeft(2, '0')}';
+                        final endSuffix = entry.endsAt == null
+                            ? ''
+                            : '–${entry.endsAt!.hour.toString().padLeft(2, '0')}:${entry.endsAt!.minute.toString().padLeft(2, '0')}';
+                        final dateLabel =
+                            '${entry.startsAt.day}/${entry.startsAt.month} ${entry.startsAt.hour.toString().padLeft(2, '0')}:${entry.startsAt.minute.toString().padLeft(2, '0')}$endSuffix';
 
                         return Card(
                           margin: const EdgeInsets.only(bottom: 10),
@@ -188,7 +189,7 @@ class _MasterCalendarPageState extends State<MasterCalendarPage> {
                                 const SizedBox(height: 4),
                                 Text('Client: ${entry.client}'),
                                 Text('Category: ${entry.category}'),
-                                Text('Place: ${entry.place}'),
+                                Text(entry.place.isEmpty ? 'Place: (not set)' : 'Place: ${entry.place}'),
                                 Text('When: $dateLabel'),
                               ],
                             ),
@@ -218,6 +219,116 @@ class GraphViewPage extends StatelessWidget {
   final List<Map<String, dynamic>> relationships;
   final WisdomService wisdomService;
 
+  Map<String, dynamic> _entityForLabel(String label) {
+    final lower = label.toLowerCase();
+    for (final entity in entities) {
+      final name = entity['name']?.toString() ?? '';
+      if (name.toLowerCase() == lower) {
+        return entity;
+      }
+    }
+    return {
+      'id': '',
+      'name': label,
+      'type': 'entity',
+      'summary': '',
+      'attention_status': 'unknown',
+      'current_focus': '',
+    };
+  }
+
+  List<Map<String, dynamic>> _linkedTasksFor(String label) {
+    final lower = label.toLowerCase();
+    return tasks.where((task) {
+      final status = task['status']?.toString() ?? 'open';
+      if (status == 'done' || status == 'archived') return false;
+      final links = (task['linked_entities'] as List<dynamic>? ?? const [])
+          .map((item) => item.toString().toLowerCase());
+      return links.contains(lower);
+    }).toList();
+  }
+
+  void _openEntityDetail(BuildContext context, String label) {
+    final entity = _entityForLabel(label);
+    final linkedTasks = _linkedTasksFor(label);
+    final summary = entity['summary']?.toString() ?? '';
+    final focus = entity['current_focus']?.toString() ?? '';
+    final status = entity['attention_status']?.toString() ?? 'unknown';
+    final type = entity['type']?.toString() ?? 'entity';
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      type == 'person'
+                          ? Icons.person_outline
+                          : Icons.hub_outlined,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        entity['name'].toString(),
+                        style: Theme.of(sheetContext).textTheme.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    Chip(label: Text(status)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text('$type'),
+                if (summary.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(summary),
+                ],
+                if (focus.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text('Focus: $focus'),
+                ],
+                if (linkedTasks.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'Linked actions',
+                    style: Theme.of(sheetContext).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  ...linkedTasks.take(8).map(
+                    (task) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text('• ${task['description']}'),
+                    ),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 16),
+                  const Text('No open linked actions.'),
+                ],
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final graph = wisdomService.compileKnowledgeGraph(
@@ -236,6 +347,11 @@ class GraphViewPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(graph.summary, style: Theme.of(context).textTheme.bodyLarge),
+            const SizedBox(height: 8),
+            Text(
+              'Tap a node to open entity detail.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 12),
             Expanded(
               child: LayoutBuilder(
@@ -288,25 +404,32 @@ class GraphViewPage extends StatelessWidget {
                           return Positioned(
                             left: position.dx - 58,
                             top: position.dy - 22,
-                            child: Container(
-                              width: 116,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: color,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                node.label,
-                                textAlign: TextAlign.center,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
+                            child: GestureDetector(
+                              onTap: () =>
+                                  _openEntityDetail(context, node.label),
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: Container(
+                                  width: 116,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: color,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    node.label,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
@@ -465,6 +588,7 @@ class _AttentionPageState extends State<AttentionPage> {
         final status = task.data()['status']?.toString() ?? 'open';
         if (status != 'done' && status != 'archived') {
           taskBatch.update(task.reference, {
+            'startAt': picked.toIso8601String(),
             'scheduledAt': picked.toIso8601String(),
             'dueDate': picked.toIso8601String(),
           });
@@ -794,7 +918,17 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
                       'id': doc.id,
                       'description': data['description']?.toString() ?? '',
                       'linked_entities': links,
+                      'linked_entity_ids':
+                          (data['linked_entity_ids'] as List<dynamic>? ??
+                                  const [])
+                              .map((item) => item.toString())
+                              .toList(),
                       'status': data['status']?.toString() ?? 'open',
+                      'category': data['category']?.toString() ?? '',
+                      'client': data['client']?.toString() ?? '',
+                      'place': data['place']?.toString() ?? '',
+                      'startAt': data['startAt']?.toString() ?? '',
+                      'endAt': data['endAt']?.toString() ?? '',
                       'scheduledAt': data['scheduledAt']?.toString() ?? '',
                       'dueDate': data['dueDate']?.toString() ?? '',
                     };
