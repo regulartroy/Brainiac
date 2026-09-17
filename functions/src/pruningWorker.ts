@@ -4,15 +4,13 @@ import {onSchedule} from "firebase-functions/v2/scheduler";
 import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {onCall} from "firebase-functions/v2/https";
 import {generateWisdomSnapshot} from "./pruningReview";
+import {mergeDuplicateEntitiesWithRefs} from "./entityMerge";
 
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 
 const db = getFirestore();
-
-const normalizeEntityKey = (value: string) =>
-  value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 
 const summarizeCapture = (content: string) => {
   const clean = content.replace(/\s+/g, " ").trim();
@@ -71,62 +69,22 @@ const archiveOldCaptures = async (retentionDays?: number) => {
 };
 
 const pruneNow = async () => {
-  const snapshot = await db.collection("entities").get();
-  const groups = new Map<string, FirebaseFirestore.QueryDocumentSnapshot[]>();
-
-  for (const doc of snapshot.docs) {
-    const name = (doc.get("name") ?? "").toString().trim();
-    if (!name) continue;
-
-    const key = normalizeEntityKey(name);
-    const existing = groups.get(key) ?? [];
-    existing.push(doc);
-    groups.set(key, existing);
-  }
-
-  const batch = db.batch();
-  let merged = 0;
-
-  for (const docs of groups.values()) {
-    if (docs.length < 2) continue;
-
-    merged += 1;
-    const canonical = docs[0];
-    const canonicalName = (canonical.get("name") ?? "").toString().trim();
-    const canonicalType = (canonical.get("type") ?? "concept").toString();
-    const summary = docs
-      .map((doc) => (doc.get("summary") ?? "").toString().trim())
-      .filter(Boolean)
-      .join(" • ");
-
-    batch.set(
-      db.collection("entities").doc(canonical.id),
-      {
-        name: canonicalName,
-        type: canonicalType,
-        summary: summary || canonical.get("summary") || "",
-        last_updated: FieldValue.serverTimestamp(),
-      },
-      {merge: true},
-    );
-
-    for (const duplicate of docs.slice(1)) {
-      batch.delete(db.collection("entities").doc(duplicate.id));
-    }
-  }
-
-  if (merged > 0) {
-    await batch.commit();
-  }
-
+  const merge = await mergeDuplicateEntitiesWithRefs();
   const configuredRetention = await getRetentionDays();
   const retention = await archiveOldCaptures(configuredRetention);
   const insight = await generateWisdomSnapshot();
   console.log(
-    `Pruning pass complete: merged ${merged} groups and archived ${retention.archived} captures older than ${configuredRetention} days.`,
+    `Pruning pass complete: merged ${merge.mergedGroups} groups ` +
+    `(deleted ${merge.entitiesDeleted} entities, updated ${merge.actionItemsUpdated} action items, ` +
+    `rel updated/removed/deduped ${merge.relationshipsUpdated}/${merge.relationshipsRemoved}/${merge.relationshipsDeduped}); ` +
+    `archived ${retention.archived} captures older than ${configuredRetention} days.`,
   );
   console.log(`Wisdom snapshot generated: ${insight.docId} (${insight.clusterCount} clusters)`);
-  return {merged, archived: retention.archived};
+  return {
+    ...merge,
+    merged: merge.mergedGroups,
+    archived: retention.archived,
+  };
 };
 
 export const pruneGraphDaily = onSchedule(
@@ -135,8 +93,13 @@ export const pruneGraphDaily = onSchedule(
     timeZone: "UTC",
   },
   async () => {
-    const merged = await pruneNow();
-    console.log(`Merged ${merged} duplicate entity groups.`);
+    const result = await pruneNow();
+    console.log(
+      `Merged ${result.merged} duplicate entity groups; ` +
+      `updated ${result.actionItemsUpdated} action items; ` +
+      `relationship hygiene u/r/d ` +
+      `${result.relationshipsUpdated}/${result.relationshipsRemoved}/${result.relationshipsDeduped}.`,
+    );
   },
 );
 

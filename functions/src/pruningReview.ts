@@ -1,6 +1,7 @@
 import {onCall} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
+import {mergeDuplicateEntitiesWithRefs} from "./entityMerge";
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -60,58 +61,7 @@ const buildTaskClusters = (tasks: Array<Record<string, any>>) => {
 };
 
 export const runPruningPass = async () => {
-  const snapshot = await db.collection("entities").get();
-  const grouped = new Map<string, FirebaseFirestore.QueryDocumentSnapshot[]>();
-
-  for (const doc of snapshot.docs) {
-    const name = (doc.get("name") ?? "").toString().trim();
-    if (!name) continue;
-
-    const key = normalizeEntityKey(name);
-    const existing = grouped.get(key) ?? [];
-    existing.push(doc);
-    grouped.set(key, existing);
-  }
-
-  const batch = db.batch();
-  let merged = 0;
-
-  for (const docs of grouped.values()) {
-    if (docs.length < 2) continue;
-
-    merged += 1;
-    const canonical = docs[0];
-    const canonicalName = (canonical.get("name") ?? "").toString().trim();
-    const canonicalType = (canonical.get("type") ?? "concept").toString();
-    const mergedSummary = docs
-      .map((doc) => (doc.get("summary") ?? "").toString().trim())
-      .filter(Boolean)
-      .join(" • ");
-
-    batch.set(
-      db.collection("entities").doc(canonical.id),
-      {
-        name: canonicalName,
-        type: canonicalType,
-        summary: mergedSummary || canonical.get("summary") || "",
-        last_updated: FieldValue.serverTimestamp(),
-      },
-      {merge: true},
-    );
-
-    for (const extraDoc of docs.slice(1)) {
-      batch.delete(db.collection("entities").doc(extraDoc.id));
-    }
-  }
-
-  if (merged > 0) {
-    await batch.commit();
-  }
-
-  return {
-    mergedGroups: merged,
-    status: "ok",
-  };
+  return mergeDuplicateEntitiesWithRefs();
 };
 
 export const generateWisdomSnapshot = async () => {
