@@ -82,4 +82,59 @@ void main() {
       expect(compressed.first['linked_entities'], contains('Alice Johnson'));
     },
   );
+
+  test('rewriteLinkedEntities remaps alias names and ids onto canonical', () {
+    final service = PruningService();
+    final result = service.rewriteLinkedEntities(
+      linkedEntities: ['Alice Johnson ', 'Studio A', 'Alice Johnson'],
+      linkedEntityIds: ['alice_johnson_', 'studio_a', 'alice-johnson'],
+      aliasNames: {'Alice Johnson', 'Alice Johnson '},
+      aliasIds: {'alice_johnson_', 'alice-johnson', 'alice_johnson'},
+      canonicalName: 'Alice Johnson',
+      canonicalId: 'alice_johnson',
+    );
+
+    expect(result.changed, isTrue);
+    expect(result.linkedEntities, ['Alice Johnson', 'Studio A']);
+    expect(result.linkedEntityIds, ['alice_johnson', 'studio_a']);
+  });
+
+  test('rewriteRelationship remaps aliases and drops self-loops', () {
+    final service = PruningService();
+    final remapped = service.rewriteRelationship(
+      fromEntity: 'Alice Johnson!',
+      toEntity: 'Project Atlas',
+      fromEntityId: 'alice_dup',
+      toEntityId: 'project_atlas',
+      type: 'works_on',
+      canonicalNameByKey: {
+        PruningService.normalizeEntityKey('Alice Johnson!'): 'Alice Johnson',
+      },
+      canonicalIdByAlias: {'alice_dup': 'alice_johnson'},
+    );
+
+    expect(remapped.changed, isTrue);
+    expect(remapped.drop, isFalse);
+    expect(remapped.fromEntity, 'Alice Johnson');
+    expect(remapped.fromEntityId, 'alice_johnson');
+    expect(remapped.edgeKey, contains('alice johnson'));
+
+    final selfLoop = service.rewriteRelationship(
+      fromEntity: 'Alice Johnson!',
+      toEntity: 'Alice Johnson',
+      fromEntityId: 'alice_dup',
+      toEntityId: 'alice_johnson',
+      type: 'related',
+      canonicalNameByKey: {
+        PruningService.normalizeEntityKey('Alice Johnson!'): 'Alice Johnson',
+        PruningService.normalizeEntityKey('Alice Johnson'): 'Alice Johnson',
+      },
+      canonicalIdByAlias: {
+        'alice_dup': 'alice_johnson',
+        'alice_johnson': 'alice_johnson',
+      },
+    );
+
+    expect(selfLoop.drop, isTrue);
+  });
 }

@@ -1230,7 +1230,21 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
       final callable = FirebaseFunctions.instance.httpsCallable(
         'pruneDuplicateEntities',
       );
-      await callable.call(<String, dynamic>{});
+      final callResult = await callable.call(<String, dynamic>{});
+      final mergeData =
+          (callResult.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      final mergedGroups = (mergeData['mergedGroups'] as num?)?.toInt() ?? 0;
+      final entitiesDeleted =
+          (mergeData['entitiesDeleted'] as num?)?.toInt() ?? 0;
+      final actionItemsUpdated =
+          (mergeData['actionItemsUpdated'] as num?)?.toInt() ?? 0;
+      final relationshipsUpdated =
+          (mergeData['relationshipsUpdated'] as num?)?.toInt() ?? 0;
+      final relationshipsRemoved =
+          (mergeData['relationshipsRemoved'] as num?)?.toInt() ?? 0;
+      final relationshipsDeduped =
+          (mergeData['relationshipsDeduped'] as num?)?.toInt() ?? 0;
 
       final snapshot = await FirebaseFirestore.instance
           .collection('entities')
@@ -1239,6 +1253,7 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
       final records = snapshot.docs
           .map(
             (doc) => EntityRecord(
+              id: doc.id,
               name: (doc.data()['name'] ?? '').toString(),
               type: (doc.data()['type'] ?? 'concept').toString(),
               summary: (doc.data()['summary'] ?? '').toString(),
@@ -1257,16 +1272,45 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
         normalizedMap.putIfAbsent(key, () => []).add(doc);
       }
 
+      final remaining = dedupedGroups.map((group) {
+        final key = _normalizeEntityKey(group.canonicalName);
+        final docs =
+            normalizedMap[key] ??
+            const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        return {'key': key, 'docs': docs, 'names': group.names};
+      }).toList();
+
+      final summaryParts = <String>[];
+      if (mergedGroups > 0) {
+        summaryParts.add(
+          'Merged $mergedGroups group${mergedGroups == 1 ? '' : 's'} '
+          '(deleted $entitiesDeleted)',
+        );
+      }
+      if (actionItemsUpdated > 0) {
+        summaryParts.add('rewrote $actionItemsUpdated action item(s)');
+      }
+      if (relationshipsUpdated + relationshipsRemoved + relationshipsDeduped >
+          0) {
+        summaryParts.add(
+          'relationships u/r/d '
+          '$relationshipsUpdated/$relationshipsRemoved/$relationshipsDeduped',
+        );
+      }
+
+      final status = remaining.isEmpty
+          ? (summaryParts.isEmpty
+                ? 'No duplicate entities found after prune.'
+                : '${summaryParts.join('; ')}. Graph is clean.')
+          : (summaryParts.isEmpty
+                ? 'Found ${remaining.length} duplicate group(s) still needing a merge.'
+                : '${summaryParts.join('; ')}. ${remaining.length} group(s) still visible.');
+
       setState(() {
-        _entityGroups = dedupedGroups.map((group) {
-          final key = _normalizeEntityKey(group.canonicalName);
-          final docs =
-              normalizedMap[key] ??
-              const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-          return {'key': key, 'docs': docs, 'names': group.names};
-        }).toList();
+        _entityGroups = remaining;
         _entityMergePanelOpen = true;
-        _statusMessage = 'Duplicate review refreshed from the live graph.';
+        _statusIsError = false;
+        _statusMessage = status;
       });
     } catch (e) {
       debugPrint('Failed to load duplicate entities: $e');
@@ -1808,6 +1852,39 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
         const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     if (docs.length < 2) return;
 
+    // Prefer the cloud merge path (rewrites refs + relationship hygiene).
+    // Fall back to a local merge that also rewrites relationships if callable fails.
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'pruneDuplicateEntities',
+      );
+      final callResult = await callable.call(<String, dynamic>{});
+      final mergeData =
+          (callResult.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      final mergedGroups = (mergeData['mergedGroups'] as num?)?.toInt() ?? 0;
+      final actionItemsUpdated =
+          (mergeData['actionItemsUpdated'] as num?)?.toInt() ?? 0;
+      final relationshipsUpdated =
+          (mergeData['relationshipsUpdated'] as num?)?.toInt() ?? 0;
+      final relationshipsRemoved =
+          (mergeData['relationshipsRemoved'] as num?)?.toInt() ?? 0;
+      final relationshipsDeduped =
+          (mergeData['relationshipsDeduped'] as num?)?.toInt() ?? 0;
+
+      await _refreshWisdomSnapshot();
+      await _refreshEntityDedupePanel(
+        status:
+            'Cloud merge: $mergedGroups group(s), '
+            '$actionItemsUpdated action item(s) rewritten, '
+            'relationships u/r/d '
+            '$relationshipsUpdated/$relationshipsRemoved/$relationshipsDeduped.',
+      );
+      return;
+    } catch (e) {
+      debugPrint('Cloud merge failed; falling back to local merge: $e');
+    }
+
     final canonicalDoc = docs.first;
     final canonicalData = canonicalDoc.data();
     final names = docs
@@ -1820,6 +1897,11 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
         .map((doc) => (doc.data()['summary'] ?? '').toString().trim())
         .where((value) => value.isNotEmpty)
         .join(' • ');
+    final aliasIds = docs.map((doc) => doc.id).toSet();
+    for (final name in names) {
+      final derived = PruningService.entityIdForName(name);
+      if (derived.isNotEmpty) aliasIds.add(derived);
+    }
 
     final canonicalRef = FirebaseFirestore.instance
         .collection('entities')
@@ -1835,37 +1917,75 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
       'last_updated': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
+    final nameByKey = <String, String>{
+      for (final name in names) _normalizeEntityKey(name): canonicalName,
+    };
+    final idByAlias = <String, String>{
+      for (final id in aliasIds) id: canonicalDoc.id,
+    };
+
     final taskSnapshot = await FirebaseFirestore.instance
         .collection('action_items')
         .get();
-    final taskDocs = taskSnapshot.docs;
-    for (final taskDoc in taskDocs) {
+    var actionItemsUpdated = 0;
+    for (final taskDoc in taskSnapshot.docs) {
       final taskData = taskDoc.data();
-      final linked = taskData['linked_entities'];
-      if (linked is! List) continue;
-
-      final oldValues = linked
+      final linked = (taskData['linked_entities'] as List<dynamic>? ?? const [])
           .whereType<String>()
-          .map((value) => value.trim())
           .toList();
-      final updatedValues = <String>[];
-
-      for (final value in oldValues) {
-        final valueKey = _normalizeEntityKey(value);
-        if (names.any((name) => _normalizeEntityKey(name) == valueKey)) {
-          if (!updatedValues.contains(canonicalName)) {
-            updatedValues.add(canonicalName);
-          }
-        } else {
-          if (!updatedValues.contains(value)) {
-            updatedValues.add(value);
-          }
-        }
+      final linkedIds =
+          (taskData['linked_entity_ids'] as List<dynamic>? ?? const [])
+              .whereType<String>()
+              .toList();
+      final rewritten = _pruningService.rewriteLinkedEntities(
+        linkedEntities: linked,
+        linkedEntityIds: linkedIds,
+        aliasNames: names.toSet(),
+        aliasIds: aliasIds,
+        canonicalName: canonicalName,
+        canonicalId: canonicalDoc.id,
+      );
+      if (rewritten.changed) {
+        actionItemsUpdated += 1;
+        batch.update(taskDoc.reference, {
+          'linked_entities': rewritten.linkedEntities,
+          'linked_entity_ids': rewritten.linkedEntityIds,
+        });
       }
+    }
 
-      if (updatedValues.length != oldValues.length ||
-          updatedValues.any((value) => !oldValues.contains(value))) {
-        batch.update(taskDoc.reference, {'linked_entities': updatedValues});
+    final relationshipSnapshot = await FirebaseFirestore.instance
+        .collection('relationships')
+        .get();
+    var relationshipsUpdated = 0;
+    var relationshipsRemoved = 0;
+    final seenEdgeKeys = <String>{};
+    for (final relDoc in relationshipSnapshot.docs) {
+      final data = relDoc.data();
+      final rewritten = _pruningService.rewriteRelationship(
+        fromEntity: (data['from_entity'] ?? '').toString(),
+        toEntity: (data['to_entity'] ?? '').toString(),
+        fromEntityId: (data['from_entity_id'] ?? '').toString(),
+        toEntityId: (data['to_entity_id'] ?? '').toString(),
+        type: (data['type'] ?? 'related').toString(),
+        canonicalNameByKey: nameByKey,
+        canonicalIdByAlias: idByAlias,
+      );
+      if (rewritten.drop || !seenEdgeKeys.add(rewritten.edgeKey)) {
+        relationshipsRemoved += 1;
+        batch.delete(relDoc.reference);
+        continue;
+      }
+      if (rewritten.changed) {
+        relationshipsUpdated += 1;
+        batch.update(relDoc.reference, {
+          'from_entity': rewritten.fromEntity,
+          'to_entity': rewritten.toEntity,
+          'from_entity_id': rewritten.fromEntityId,
+          'to_entity_id': rewritten.toEntityId,
+          'type': rewritten.type,
+          'last_updated': FieldValue.serverTimestamp(),
+        });
       }
     }
 
@@ -1880,7 +2000,12 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
       _entityGroups = _entityGroups
           .where((entry) => entry['key'] != group['key'])
           .toList();
-      _statusMessage = 'Merged ${docs.length} duplicate entity records.';
+      _statusIsError = false;
+      _statusMessage =
+          'Merged ${docs.length} entities locally; '
+          'rewrote $actionItemsUpdated action item(s); '
+          'relationships updated/removed '
+          '$relationshipsUpdated/$relationshipsRemoved.';
     });
   }
 
