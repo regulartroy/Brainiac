@@ -14,6 +14,7 @@ import 'js_bridge.dart' as js_bridge;
 import 'services/brain_agent_service.dart';
 import 'services/pruning_service.dart';
 import 'services/wisdom_service.dart';
+import 'screens/inspect_dashboard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1223,6 +1224,66 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
         .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
         .trim();
     return normalized.replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  Future<void> _refreshEntityDedupePanel({String? status}) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('entities')
+          .get();
+
+      final records = snapshot.docs
+          .map(
+            (doc) => EntityRecord(
+              id: doc.id,
+              name: (doc.data()['name'] ?? '').toString(),
+              type: (doc.data()['type'] ?? 'concept').toString(),
+              summary: (doc.data()['summary'] ?? '').toString(),
+            ),
+          )
+          .toList();
+
+      final dedupedGroups = _pruningService.groupDuplicateEntities(records);
+      final normalizedMap =
+          <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+
+      for (final doc in snapshot.docs) {
+        final name = (doc.data()['name'] ?? '').toString().trim();
+        if (name.isEmpty) continue;
+        final key = _normalizeEntityKey(name);
+        normalizedMap.putIfAbsent(key, () => []).add(doc);
+      }
+
+      final remaining = dedupedGroups.map((group) {
+        final key = _normalizeEntityKey(group.canonicalName);
+        final docs =
+            normalizedMap[key] ??
+            const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        return {'key': key, 'docs': docs, 'names': group.names};
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _entityGroups = remaining;
+        _entityMergePanelOpen = true;
+        _statusIsError = false;
+        if (status != null) {
+          _statusMessage = status;
+        } else if (remaining.isEmpty) {
+          _statusMessage = 'No duplicate entities found after prune.';
+        } else {
+          _statusMessage =
+              'Found ${remaining.length} duplicate group(s) still needing a merge.';
+        }
+      });
+    } catch (e) {
+      debugPrint('Failed to refresh entity dedupe panel: $e');
+      if (!mounted) return;
+      setState(() {
+        _statusIsError = true;
+        _statusMessage = status ?? 'Could not refresh duplicate entity groups.';
+      });
+    }
   }
 
   Future<void> _loadDuplicateEntities() async {
@@ -2940,6 +3001,22 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
     );
   }
 
+  void _openInspectDashboard() {
+    final navigatorContext = _navigatorKey.currentContext;
+    if (navigatorContext == null) return;
+
+    Navigator.of(navigatorContext).push(
+      MaterialPageRoute(
+        builder: (_) => InspectDashboardPage(
+          entities: _entities,
+          relationships: _relationships,
+          tasks: _tasks,
+          wisdomService: _wisdomService,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -2953,6 +3030,11 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
         appBar: AppBar(
           title: const Text('Brainiac Test'),
           actions: [
+            IconButton(
+              tooltip: 'Open inspect dashboard',
+              icon: const Icon(Icons.dashboard_outlined),
+              onPressed: _openInspectDashboard,
+            ),
             IconButton(
               tooltip: 'Open master calendar',
               icon: const Icon(Icons.calendar_month),
