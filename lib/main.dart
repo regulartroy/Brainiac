@@ -1,3 +1,7 @@
+// ignore_for_file: unused_element, unused_field
+// Life-OS capture/ask/wisdom UI was stripped from the product shell in the
+// graph-shell-home change; helpers above stay temporarily for a later rip.
+
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -114,10 +118,6 @@ class _MasterCalendarPageState extends State<MasterCalendarPage> {
       return matchesClient && isWithinWindow;
     }).toList();
 
-    final route = widget.wisdomService.estimateRoutePlan(
-      entries: filteredEntries,
-    );
-
     return Scaffold(
       appBar: AppBar(title: const Text('Master calendar')),
       body: Padding(
@@ -131,32 +131,6 @@ class _MasterCalendarPageState extends State<MasterCalendarPage> {
                 border: OutlineInputBorder(),
               ),
               onChanged: (value) => setState(() => _clientFilter = value),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Route plan',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(route.summary),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${route.stopCount} stops • ~${route.totalMinutes} minutes travel buffer',
-                  ),
-                ],
-              ),
             ),
             const SizedBox(height: 16),
             Text(
@@ -815,7 +789,7 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
   bool _showInsights = true;
   TaskFilter _taskFilter = TaskFilter.all;
   String? _focusFilter;
-  String _statusMessage = 'Ready — your memory is compressed into insight';
+  String _statusMessage = 'Ready — shared memory graph';
   bool _statusIsError = false;
   List<Map<String, dynamic>> _tasks = [];
   List<Map<String, dynamic>> _insightHistory = const [];
@@ -3022,20 +2996,15 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: _navigatorKey,
-      title: 'Second Brain',
+      title: 'Brainiac',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Brainiac Test'),
+          title: const Text('Brainiac'),
           actions: [
-            IconButton(
-              tooltip: 'Open inspect dashboard',
-              icon: const Icon(Icons.dashboard_outlined),
-              onPressed: _openInspectDashboard,
-            ),
             IconButton(
               tooltip: 'Open master calendar',
               icon: const Icon(Icons.calendar_month),
@@ -3052,24 +3021,9 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
               onPressed: _openAttentionView,
             ),
             IconButton(
-              tooltip: 'Generate daily curation prompts',
-              icon: const Icon(Icons.auto_awesome),
-              onPressed: _showDailyQuestions,
-            ),
-            IconButton(
               tooltip: 'Merge duplicate entities',
               icon: const Icon(Icons.merge_type),
               onPressed: _loadDuplicateEntities,
-            ),
-            IconButton(
-              tooltip: 'Toggle memory panel',
-              icon: const Icon(Icons.psychology_outlined),
-              onPressed: _openMemoryPanel,
-            ),
-            IconButton(
-              tooltip: 'Export state to window.SECOND_BRAIN_STATE',
-              icon: const Icon(Icons.bug_report),
-              onPressed: _exportState,
             ),
           ],
         ),
@@ -3077,534 +3031,41 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
           children: [
             Column(
               children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _statusIsError
-                                  ? Colors.red.shade50
-                                  : Theme.of(context)
-                                        .colorScheme
-                                        .primaryContainer
-                                        .withOpacity(0.25),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              _statusMessage,
-                              style: TextStyle(
-                                color: _statusIsError
-                                    ? Colors.red.shade900
-                                    : Theme.of(context).colorScheme.onSurface,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.surface,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.outlineVariant,
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      'Ask Brainiac',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Ask Brainiac',
-                                      icon: const Icon(Icons.send),
-                                      onPressed: _askBrainiac,
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                TextField(
-                                  controller: _brainiacController,
-                                  minLines: 1,
-                                  maxLines: 3,
-                                  decoration: const InputDecoration(
-                                    hintText:
-                                        'Ask: what do I have on for Acme this month?',
-                                    border: OutlineInputBorder(),
-                                    isDense: true,
-                                  ),
-                                  onSubmitted: (_) => _askBrainiac(),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  _brainiacAnswer,
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                ),
-                                if (_brainiacHighlights.isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  ..._brainiacHighlights.map(
-                                    (highlight) => Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: Text('• $highlight'),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                          child: _buildWisdomCard(),
-                        ),
-                        if (_showInsights)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.surfaceContainerHighest,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Wisdom stream',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  if (_insightHistory.isNotEmpty) ...[
-                                    const Text('Recent intelligence'),
-                                    const SizedBox(height: 6),
-                                    ..._insightHistory.take(3).map((insight) {
-                                      final summary = (insight['summary'] ?? '')
-                                          .toString();
-                                      final advice =
-                                          (insight['clusterAdvice']
-                                                      as List<dynamic>? ??
-                                                  const [])
-                                              .map((item) => item.toString())
-                                              .take(2)
-                                              .toList();
-                                      return Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 8,
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              summary,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            if (advice.isNotEmpty) ...[
-                                              const SizedBox(height: 4),
-                                              ...advice.map(
-                                                (tip) => Text(
-                                                  '• $tip',
-                                                  style: const TextStyle(
-                                                    fontSize: 12,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      );
-                                    }),
-                                  ] else
-                                    const Text(
-                                      'No saved wisdom snapshots yet.',
-                                    ),
-                                  const Divider(height: 20),
-                                  Text(
-                                    'Retention archive',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Raw captures are compressed after $_retentionDays days and kept as short summaries instead of active context.',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      const Text('Retention'),
-                                      Expanded(
-                                        child: Slider(
-                                          value: _retentionDays.toDouble(),
-                                          min: 1,
-                                          max: 365,
-                                          divisions: 364,
-                                          label: '$_retentionDays days',
-                                          onChanged: (value) {
-                                            setState(() {
-                                              _retentionDays = value.round();
-                                            });
-                                          },
-                                          onChangeEnd: (value) {
-                                            _updateRetentionDays(value.round());
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton.icon(
-                                      onPressed: _runRetentionSweep,
-                                      icon: const Icon(Icons.refresh),
-                                      label: const Text('Run sweep now'),
-                                    ),
-                                  ),
-                                  if (_captureArchive.isNotEmpty)
-                                    ..._captureArchive.take(3).map((capture) {
-                                      final content = (capture['content'] ?? '')
-                                          .toString();
-                                      return Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 8,
-                                        ),
-                                        child: Text(
-                                          '• $content',
-                                          style: const TextStyle(fontSize: 12),
-                                        ),
-                                      );
-                                    })
-                                  else
-                                    const Text('No archived captures yet.'),
-                                  const Divider(height: 20),
-                                  Text(
-                                    'Archived tasks',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  if (_archivedTasks.isNotEmpty)
-                                    ..._archivedTasks.take(5).map((task) {
-                                      final description =
-                                          (task['description'] ?? '')
-                                              .toString();
-                                      final linked =
-                                          (task['linked_entities']
-                                                      as List<dynamic>? ??
-                                                  const [])
-                                              .whereType<String>()
-                                              .join(', ');
-                                      return Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 6,
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(description),
-                                            if (linked.isNotEmpty)
-                                              Text(
-                                                'Links: $linked',
-                                                style: const TextStyle(
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                      );
-                                    })
-                                  else
-                                    const Text(
-                                      'No completed tasks archived yet.',
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: TaskFilter.values.map((filter) {
-                              final label = switch (filter) {
-                                TaskFilter.all => 'All',
-                                TaskFilter.open => 'Open',
-                                TaskFilter.done => 'Done',
-                                TaskFilter.review => 'Review',
-                              };
-
-                              return ChoiceChip(
-                                label: Text(label),
-                                selected: _taskFilter == filter,
-                                onSelected: (_) {
-                                  setState(() {
-                                    _taskFilter = filter;
-                                  });
-                                },
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                        Builder(
-                          builder: (_) {
-                            final filteredTasks = _tasks.where((task) {
-                              final status =
-                                  task['status']?.toString() ?? 'open';
-
-                              final matchesStatus = switch (_taskFilter) {
-                                TaskFilter.all => true,
-                                TaskFilter.open => status == 'open',
-                                TaskFilter.done => status == 'done',
-                                TaskFilter.review => status == 'pending_review',
-                              };
-
-                              return matchesStatus && _matchesFocusFilter(task);
-                            }).toList();
-
-                            if (filteredTasks.isEmpty) {
-                              return const Padding(
-                                padding: EdgeInsets.all(16),
-                                child: Center(
-                                  child: Text('No tasks in this view yet.'),
-                                ),
-                              );
-                            }
-
-                            final compressedTasks = _pruningService
-                                .compressTodoList(filteredTasks);
-
-                            return ListView(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              padding: const EdgeInsets.only(bottom: 8),
-                              children: [
-                                if (compressedTasks.length <
-                                    filteredTasks.length)
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      16,
-                                      8,
-                                      16,
-                                      0,
-                                    ),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.tertiaryContainer,
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Compressed view',
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleSmall
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          ...compressedTasks.map((task) {
-                                            final description =
-                                                (task['description'] ?? '')
-                                                    .toString();
-                                            return Padding(
-                                              padding: const EdgeInsets.only(
-                                                bottom: 6,
-                                              ),
-                                              child: Row(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  const Icon(
-                                                    Icons.layers_outlined,
-                                                    size: 16,
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  Expanded(
-                                                    child: Text(
-                                                      description,
-                                                      style: Theme.of(
-                                                        context,
-                                                      ).textTheme.bodyMedium,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-                                          }),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ...filteredTasks.asMap().entries.map((entry) {
-                                  final task = entry.value;
-                                  final String description =
-                                      task['description'] ?? '';
-                                  final List<dynamic> linkedEntities =
-                                      task['linked_entities'] ??
-                                      const <dynamic>[];
-                                  final bool isDone = task['status'] == 'done';
-
-                                  return Card(
-                                    margin: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
-                                    ),
-                                    child: CheckboxListTile(
-                                      value: isDone,
-                                      title: Text(
-                                        description,
-                                        style: TextStyle(
-                                          decoration: isDone
-                                              ? TextDecoration.lineThrough
-                                              : TextDecoration.none,
-                                          color: isDone ? Colors.grey : null,
-                                        ),
-                                      ),
-                                      subtitle: linkedEntities.isNotEmpty
-                                          ? Text(
-                                              'Links: ${linkedEntities.join(', ')}',
-                                            )
-                                          : null,
-                                      controlAffinity:
-                                          ListTileControlAffinity.leading,
-                                      onChanged: (value) {
-                                        if (value == null) return;
-                                        _toggleTaskStatus(task, value);
-                                      },
-                                    ),
-                                  );
-                                }),
-                              ],
-                            );
-                          },
-                        ),
-                      ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _statusIsError
+                          ? Colors.red.shade50
+                          : Theme.of(context)
+                              .colorScheme
+                              .primaryContainer
+                              .withOpacity(0.25),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      _statusMessage,
+                      style: TextStyle(
+                        color: _statusIsError
+                            ? Colors.red.shade900
+                            : Theme.of(context).colorScheme.onSurface,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.all(16.0),
-                  color: Theme.of(context).colorScheme.surface,
-                  child: Column(
-                    children: [
-                      SegmentedButton<CaptureMode>(
-                        segments: const [
-                          ButtonSegment(
-                            value: CaptureMode.task,
-                            label: Text('Task'),
-                            icon: Icon(Icons.check_circle_outline),
-                          ),
-                          ButtonSegment(
-                            value: CaptureMode.person,
-                            label: Text('Person'),
-                            icon: Icon(Icons.person_outline),
-                          ),
-                          ButtonSegment(
-                            value: CaptureMode.detail,
-                            label: Text('Detail'),
-                            icon: Icon(Icons.edit_note),
-                          ),
-                        ],
-                        selected: {_captureMode},
-                        onSelectionChanged: (selection) {
-                          setState(() => _captureMode = selection.first);
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _textController,
-                              decoration: InputDecoration(
-                                hintText: switch (_captureMode) {
-                                  CaptureMode.task =>
-                                    'Add a task or dictate a note...',
-                                  CaptureMode.person =>
-                                    'Name the person to add...',
-                                  CaptureMode.detail =>
-                                    'Person or place: detail to remember',
-                                },
-                                border: const OutlineInputBorder(),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                ),
-                              ),
-                              onSubmitted: _submitNote,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            tooltip: _isListening
-                                ? 'Stop listening'
-                                : 'Dictate',
-                            icon: Icon(
-                              _isListening ? Icons.mic : Icons.mic_none,
-                            ),
-                            color: _isListening
-                                ? Colors.red
-                                : Theme.of(context).colorScheme.primary,
-                            onPressed: _isSubmitting ? null : _listen,
-                          ),
-                          IconButton(
-                            tooltip: 'Save',
-                            icon: const Icon(Icons.send),
-                            color: _isSubmitting
-                                ? Colors.grey
-                                : Theme.of(context).colorScheme.primary,
-                            onPressed: _isSubmitting
-                                ? null
-                                : () => _submitNote(_textController.text),
-                          ),
-                        ],
-                      ),
-                    ],
+                Expanded(
+                  child: InspectDashboardPage(
+                    entities: _entities,
+                    relationships: _relationships,
+                    tasks: _tasks,
+                    wisdomService: _wisdomService,
+                    embedded: true,
                   ),
                 ),
               ],
@@ -3697,206 +3158,6 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
                                       );
                                     },
                                   ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            if (_reviewPanelOpen)
-              Positioned(
-                right: 0,
-                top: 0,
-                bottom: 0,
-                width: 360,
-                child: Material(
-                  elevation: 6,
-                  color: Theme.of(context).colorScheme.surfaceVariant,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                'Entity Review',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close),
-                                onPressed: () => setState(() {
-                                  _reviewPanelOpen = false;
-                                }),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Map ambiguous mentions to known entities or edit names.',
-                          ),
-                          const SizedBox(height: 12),
-                          Expanded(
-                            child: ListView.builder(
-                              itemCount: _pendingReviewItems.length,
-                              itemBuilder: (context, idx) {
-                                final item = _pendingReviewItems[idx];
-                                final current =
-                                    _reviewMappings[item.id] ?? item.label;
-                                _reviewControllers[item.id] =
-                                    _reviewControllers[item.id] ??
-                                    TextEditingController(text: current);
-                                _editingReview[item.id] =
-                                    _editingReview[item.id] ?? false;
-
-                                final suggestions = [
-                                  current,
-                                  ..._entitySuggestions.where(
-                                    (s) => s != current,
-                                  ),
-                                ];
-
-                                return Card(
-                                  margin: const EdgeInsets.symmetric(
-                                    vertical: 6,
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(8.0),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          item.label,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          item.type,
-                                          style: const TextStyle(
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        if (!_editingReview[item.id]!)
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: DropdownButton<String>(
-                                                  value: current,
-                                                  isExpanded: true,
-                                                  items: suggestions
-                                                      .map(
-                                                        (s) => DropdownMenuItem(
-                                                          value: s,
-                                                          child: Text(s),
-                                                        ),
-                                                      )
-                                                      .toList(),
-                                                  onChanged: (val) {
-                                                    if (val != null) {
-                                                      setState(() {
-                                                        _reviewMappings[item
-                                                                .id] =
-                                                            val;
-                                                        _reviewControllers[item
-                                                                    .id]!
-                                                                .text =
-                                                            val;
-                                                      });
-                                                    }
-                                                  },
-                                                ),
-                                              ),
-                                              IconButton(
-                                                icon: const Icon(Icons.edit),
-                                                onPressed: () => setState(() {
-                                                  _editingReview[item.id] =
-                                                      true;
-                                                }),
-                                              ),
-                                            ],
-                                          )
-                                        else
-                                          Column(
-                                            children: [
-                                              TextField(
-                                                controller:
-                                                    _reviewControllers[item.id],
-                                                decoration:
-                                                    const InputDecoration(
-                                                      labelText: 'Edit label',
-                                                    ),
-                                                onChanged: (v) =>
-                                                    _reviewMappings[item.id] =
-                                                        v,
-                                              ),
-                                              Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.end,
-                                                children: [
-                                                  TextButton(
-                                                    onPressed: () => setState(
-                                                      () {
-                                                        _editingReview[item
-                                                                .id] =
-                                                            false;
-                                                        _reviewControllers[item
-                                                                    .id]!
-                                                                .text =
-                                                            _reviewMappings[item
-                                                                .id] ??
-                                                            item.label;
-                                                      },
-                                                    ),
-                                                    child: const Text('Cancel'),
-                                                  ),
-                                                  FilledButton(
-                                                    onPressed: () => setState(() {
-                                                      _editingReview[item.id] =
-                                                          false;
-                                                      _reviewMappings[item.id] =
-                                                          _reviewControllers[item
-                                                                  .id]!
-                                                              .text;
-                                                    }),
-                                                    child: const Text('Save'),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              TextButton(
-                                onPressed: () => setState(() {
-                                  _reviewPanelOpen = false;
-                                  _pendingReviewItems = const [];
-                                }),
-                                child: const Text('Cancel'),
-                              ),
-                              const SizedBox(width: 8),
-                              FilledButton(
-                                onPressed: _submitWithConfirmedEntities,
-                                child: const Text('Submit note'),
-                              ),
-                            ],
                           ),
                         ],
                       ),
