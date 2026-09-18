@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../models/entity_type.dart';
 import '../services/wisdom_service.dart';
+import '../widgets/curiosity_panel.dart';
+import '../widgets/entity_editor_sheet.dart';
+import '../widgets/entity_type_chip.dart';
 
 /// Thin, mostly read-only inspect surface over the live life graph.
 ///
 /// Shows counts + browse tabs for entities, relationships, appointments
 /// (dated action_items), and attention/priorities from existing signals.
-/// Does not add capture, curation, or bot-execution features.
+/// Adds typed create/edit and a calm curiosity panel — not life-OS clutter.
 class InspectDashboardPage extends StatefulWidget {
   const InspectDashboardPage({
     super.key,
@@ -68,7 +72,7 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
   Map<String, int> get _entityTypeCounts {
     final counts = <String, int>{};
     for (final entity in widget.entities) {
-      final type = (entity['type'] ?? 'concept').toString();
+      final type = EntityType.parse(entity['type']?.toString()).firestoreValue;
       counts[type] = (counts[type] ?? 0) + 1;
     }
     return counts;
@@ -79,8 +83,8 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     return widget.entities
         .where(
           (e) =>
-              (e['type'] ?? 'concept').toString().toLowerCase() ==
-              _entityTypeFilter.toLowerCase(),
+              EntityType.parse(e['type']?.toString()).firestoreValue ==
+              _entityTypeFilter,
         )
         .toList();
   }
@@ -94,11 +98,22 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     return {
       'id': '',
       'name': label,
-      'type': 'entity',
+      'type': 'other',
       'summary': '',
       'attention_status': 'unknown',
       'current_focus': '',
+      'address': '',
+      'located_in_entity_id': '',
     };
+  }
+
+  String _entityNameById(String id) {
+    for (final e in widget.entities) {
+      if ((e['id'] ?? '').toString() == id) {
+        return (e['name'] ?? id).toString();
+      }
+    }
+    return id;
   }
 
   List<Map<String, dynamic>> _linkedTasksFor(String label) {
@@ -119,6 +134,21 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     }).toList();
   }
 
+  Future<void> _createEntity() async {
+    await showEntityEditorSheet(
+      context,
+      allEntities: widget.entities,
+    );
+  }
+
+  Future<void> _editEntity(Map<String, dynamic> entity) async {
+    await showEntityEditorSheet(
+      context,
+      existing: entity,
+      allEntities: widget.entities,
+    );
+  }
+
   void _openEntityDetail(BuildContext context, String label) {
     final entity = _entityForLabel(label);
     final linkedTasks = _linkedTasksFor(label);
@@ -126,15 +156,18 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     final summary = (entity['summary'] ?? '').toString();
     final focus = (entity['current_focus'] ?? '').toString();
     final status = (entity['attention_status'] ?? 'unknown').toString();
-    final type = (entity['type'] ?? 'entity').toString();
+    final type = EntityType.parse(entity['type']?.toString());
+    final address = (entity['address'] ?? '').toString();
+    final locatedIn = (entity['located_in_entity_id'] ?? '').toString();
 
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (sheetContext) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -142,24 +175,34 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
                 children: [
                   Row(
                     children: [
-                      Icon(
-                        type == 'person'
-                            ? Icons.person_outline
-                            : Icons.hub_outlined,
+                      CircleAvatar(
+                        backgroundColor: type.softBackground,
+                        foregroundColor: type.color,
+                        child: Icon(type.icon),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           entity['name'].toString(),
-                          style: Theme.of(sheetContext).textTheme.titleLarge
+                          style: Theme.of(sheetContext)
+                              .textTheme
+                              .titleLarge
                               ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                       ),
-                      Chip(label: Text(status)),
+                      EntityTypeChip(type: type, compact: true),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text(type),
+                  Wrap(
+                    spacing: 6,
+                    children: [
+                      Chip(
+                        label: Text(status),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
+                  ),
                   if (summary.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Text(summary),
@@ -168,10 +211,20 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
                     const SizedBox(height: 8),
                     Text('Focus: $focus'),
                   ],
+                  if (type.isPlace && address.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('Address: $address'),
+                  ],
+                  if (type == EntityType.venue && locatedIn.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('Located in: ${_entityNameById(locatedIn)}'),
+                  ],
                   const SizedBox(height: 16),
                   Text(
                     'Linked actions (${linkedTasks.length})',
-                    style: Theme.of(sheetContext).textTheme.titleSmall
+                    style: Theme.of(sheetContext)
+                        .textTheme
+                        .titleSmall
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
@@ -187,7 +240,9 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
                   const SizedBox(height: 16),
                   Text(
                     'Relationships (${edges.length})',
-                    style: Theme.of(sheetContext).textTheme.titleSmall
+                    style: Theme.of(sheetContext)
+                        .textTheme
+                        .titleSmall
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
@@ -198,6 +253,7 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
                       final from = (rel['from_entity'] ?? '').toString();
                       final to = (rel['to_entity'] ?? '').toString();
                       final relType = (rel['type'] ??
+                              rel['summary'] ??
                               rel['description'] ??
                               'related')
                           .toString();
@@ -207,12 +263,24 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
                       );
                     }),
                   const SizedBox(height: 16),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton(
-                      onPressed: () => Navigator.pop(sheetContext),
-                      child: const Text('Close'),
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      if ((entity['id'] ?? '').toString().isNotEmpty)
+                        TextButton.icon(
+                          onPressed: () {
+                            Navigator.pop(sheetContext);
+                            _editEntity(entity);
+                          },
+                          icon: const Icon(Icons.edit_outlined),
+                          label: const Text('Edit'),
+                        ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(sheetContext),
+                        child: const Text('Close'),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -223,56 +291,120 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     );
   }
 
-  Widget _countChip(BuildContext context, String label, int count) {
+  Widget _countChip(
+    BuildContext context,
+    String label,
+    int count, {
+    Color? accent,
+  }) {
     final scheme = Theme.of(context).colorScheme;
+    final bg = accent?.withValues(alpha: 0.16) ??
+        scheme.primaryContainer.withValues(alpha: 0.55);
+    final fg = accent ?? scheme.onPrimaryContainer;
     return Chip(
       visualDensity: VisualDensity.compact,
-      backgroundColor: scheme.surfaceContainerHighest,
-      label: Text('$label: $count'),
+      backgroundColor: bg,
+      side: BorderSide(color: (accent ?? scheme.primary).withValues(alpha: 0.35)),
+      label: Text(
+        '$label: $count',
+        style: TextStyle(color: fg, fontWeight: FontWeight.w600),
+      ),
     );
   }
 
   Widget _buildCountsStrip(BuildContext context) {
     final typeCounts = _entityTypeCounts;
-    final typeParts = typeCounts.entries
-        .map((e) => '${e.key} ${e.value}')
-        .join(' · ');
 
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.35),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Live graph',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleSmall
-                  ?.copyWith(fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                Icon(
+                  Icons.hub,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Live graph',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _createEntity,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Entity'),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 4,
               children: [
-                _countChip(context, 'Entities', widget.entities.length),
+                _countChip(
+                  context,
+                  'Entities',
+                  widget.entities.length,
+                  accent: const Color(0xFF5B6CFF),
+                ),
                 _countChip(
                   context,
                   'Relationships',
                   widget.relationships.length,
+                  accent: const Color(0xFF7C4DFF),
                 ),
-                _countChip(context, 'Open actions', _openTasks.length),
-                _countChip(context, 'Appointments', _appointments.length),
-                _countChip(context, 'Attention', _attentionEntities.length),
+                _countChip(
+                  context,
+                  'Open actions',
+                  _openTasks.length,
+                  accent: const Color(0xFF00897B),
+                ),
+                _countChip(
+                  context,
+                  'Appointments',
+                  _appointments.length,
+                  accent: const Color(0xFFE65100),
+                ),
+                _countChip(
+                  context,
+                  'Attention',
+                  _attentionEntities.length,
+                  accent: const Color(0xFFC62828),
+                ),
               ],
             ),
-            if (typeParts.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                'By type: $typeParts',
-                style: Theme.of(context).textTheme.bodySmall,
+            if (typeCounts.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: typeCounts.entries.map((e) {
+                  final t = EntityType.parse(e.key);
+                  return Chip(
+                    avatar: Icon(t.icon, size: 14, color: t.color),
+                    label: Text(
+                      '${t.label} ${e.value}',
+                      style: TextStyle(
+                        color: t.color,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                    backgroundColor: t.softBackground,
+                    visualDensity: VisualDensity.compact,
+                    side: BorderSide(color: t.color.withValues(alpha: 0.35)),
+                  );
+                }).toList(),
               ),
             ],
           ],
@@ -282,7 +414,10 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
   }
 
   Widget _buildEntitiesTab() {
-    final types = ['all', ..._entityTypeCounts.keys.toList()..sort()];
+    final filterTypes = <String>[
+      'all',
+      ...EntityType.all.map((t) => t.firestoreValue),
+    ];
     final entities = _filteredEntities;
 
     return Column(
@@ -291,14 +426,29 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
           child: Row(
-            children: types.map((type) {
-              final selected = _entityTypeFilter == type;
+            children: filterTypes.map((typeKey) {
+              if (typeKey == 'all') {
+                final selected = _entityTypeFilter == 'all';
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: FilterChip(
+                    label: const Text('All'),
+                    selected: selected,
+                    onSelected: (_) =>
+                        setState(() => _entityTypeFilter = 'all'),
+                  ),
+                );
+              }
+              final t = EntityType.parse(typeKey);
+              final selected = _entityTypeFilter == typeKey;
               return Padding(
                 padding: const EdgeInsets.only(right: 6),
-                child: FilterChip(
-                  label: Text(type),
+                child: EntityTypeChip(
+                  type: t,
                   selected: selected,
-                  onSelected: (_) => setState(() => _entityTypeFilter = type),
+                  compact: true,
+                  onSelected: (_) =>
+                      setState(() => _entityTypeFilter = typeKey),
                 ),
               );
             }).toList(),
@@ -306,36 +456,88 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
         ),
         Expanded(
           child: entities.isEmpty
-              ? const Center(child: Text('No entities in this filter.'))
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.inbox_outlined,
+                        size: 40,
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.entities.isEmpty
+                            ? 'Graph is empty — add an entity to begin.'
+                            : 'No entities in this filter.',
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: _createEntity,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add entity'),
+                      ),
+                    ],
+                  ),
+                )
               : ListView.separated(
                   padding: const EdgeInsets.all(12),
                   itemCount: entities.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 4),
+                  separatorBuilder: (_, __) => const SizedBox(height: 6),
                   itemBuilder: (context, index) {
                     final entity = entities[index];
                     final name = (entity['name'] ?? '').toString();
-                    final type = (entity['type'] ?? 'concept').toString();
+                    final type = EntityType.parse(entity['type']?.toString());
                     final status =
                         (entity['attention_status'] ?? 'unknown').toString();
                     final summary = (entity['summary'] ?? '').toString();
+                    final address = (entity['address'] ?? '').toString();
+                    final locatedIn =
+                        (entity['located_in_entity_id'] ?? '').toString();
+                    final placeBits = <String>[];
+                    if (type.isPlace && address.isNotEmpty) {
+                      placeBits.add(address);
+                    }
+                    if (type == EntityType.venue && locatedIn.isNotEmpty) {
+                      placeBits.add('in ${_entityNameById(locatedIn)}');
+                    }
+                    final subtitleParts = <String>[
+                      status,
+                      if (summary.isNotEmpty) summary,
+                      ...placeBits,
+                    ];
                     return Card(
+                      elevation: 0,
+                      color: type.softBackground,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: type.color.withValues(alpha: 0.35),
+                        ),
+                      ),
                       child: ListTile(
                         dense: true,
-                        leading: Icon(
-                          type == 'person'
-                              ? Icons.person_outline
-                              : Icons.hub_outlined,
+                        leading: CircleAvatar(
+                          backgroundColor: type.color,
+                          foregroundColor: Colors.white,
+                          child: Icon(type.icon, size: 18),
                         ),
-                        title: Text(name),
+                        title: Text(
+                          name,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
                         subtitle: Text(
-                          summary.isEmpty
-                              ? '$type · $status'
-                              : '$type · $status · $summary',
+                          subtitleParts.join(' · '),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        trailing: const Icon(Icons.chevron_right),
+                        trailing: EntityTypeChip(
+                          type: type,
+                          compact: true,
+                          showIcon: false,
+                        ),
                         onTap: () => _openEntityDetail(context, name),
+                        onLongPress: () => _editEntity(entity),
                       ),
                     );
                   },
@@ -358,14 +560,25 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
         final rel = rels[index];
         final from = (rel['from_entity'] ?? '').toString();
         final to = (rel['to_entity'] ?? '').toString();
-        final relType =
-            (rel['type'] ?? rel['description'] ?? 'related').toString();
+        final relType = (rel['type'] ??
+                rel['summary'] ??
+                rel['description'] ??
+                'related')
+            .toString();
         return Card(
+          color: Theme.of(context)
+              .colorScheme
+              .tertiaryContainer
+              .withValues(alpha: 0.45),
           child: ListTile(
             dense: true,
-            leading: const Icon(Icons.link),
+            leading: Icon(
+              Icons.link,
+              color: Theme.of(context).colorScheme.tertiary,
+            ),
             title: Text('$from → $to'),
-            subtitle: Text(relType, maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle:
+                Text(relType, maxLines: 2, overflow: TextOverflow.ellipsis),
             onTap: from.isEmpty ? null : () => _openEntityDetail(context, from),
           ),
         );
@@ -398,9 +611,10 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
             ? ''
             : ' · ${entry.linkedEntityIds.join(', ')}';
         return Card(
+          color: const Color(0xFFFFE0B2).withValues(alpha: 0.55),
           child: ListTile(
             dense: true,
-            leading: const Icon(Icons.event),
+            leading: const Icon(Icons.event, color: Color(0xFFE65100)),
             title: Text(entry.title),
             subtitle: Text('$when · $place$linked'),
             onTap: entry.linkedEntityIds.isEmpty
@@ -432,6 +646,10 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
       padding: const EdgeInsets.all(12),
       children: [
         Card(
+          color: Theme.of(context)
+              .colorScheme
+              .errorContainer
+              .withValues(alpha: 0.35),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -484,10 +702,17 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
             final status =
                 (entity['attention_status'] ?? 'unknown').toString();
             final focus = (entity['current_focus'] ?? '').toString();
+            final type = EntityType.parse(entity['type']?.toString());
             return Card(
+              color: type.softBackground,
               child: ListTile(
                 dense: true,
-                leading: const Icon(Icons.priority_high),
+                leading: CircleAvatar(
+                  backgroundColor: type.color,
+                  foregroundColor: Colors.white,
+                  radius: 16,
+                  child: Icon(type.icon, size: 16),
+                ),
                 title: Text(name),
                 subtitle: Text(
                   focus.isEmpty ? status : '$status · $focus',
@@ -507,6 +732,8 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     return TabBar(
       controller: _tabs,
       isScrollable: true,
+      indicatorColor: Theme.of(context).colorScheme.secondary,
+      labelColor: Theme.of(context).colorScheme.primary,
       tabs: const [
         Tab(text: 'Entities'),
         Tab(text: 'Relationships'),
@@ -520,6 +747,10 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     return Column(
       children: [
         _buildCountsStrip(context),
+        CuriosityPanel(
+          entities: widget.entities,
+          relationships: widget.relationships,
+        ),
         Expanded(
           child: TabBarView(
             controller: _tabs,
@@ -541,7 +772,7 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
       return Column(
         children: [
           Material(
-            color: Theme.of(context).colorScheme.surface,
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
             elevation: 0,
             child: _buildTabBar(),
           ),
@@ -557,6 +788,11 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
           preferredSize: const Size.fromHeight(kTextTabBarHeight),
           child: _buildTabBar(),
         ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _createEntity,
+        icon: const Icon(Icons.add),
+        label: const Text('Entity'),
       ),
       body: _buildDashboardBody(context),
     );

@@ -947,11 +947,14 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
                     return {
                       'id': doc.id,
                       'name': data['name']?.toString() ?? doc.id,
-                      'type': data['type']?.toString() ?? 'concept',
+                      'type': data['type']?.toString() ?? 'other',
                       'summary': data['summary']?.toString() ?? '',
                       'attention_status':
                           data['attention_status']?.toString() ?? 'unknown',
                       'current_focus': data['current_focus']?.toString() ?? '',
+                      'address': data['address']?.toString() ?? '',
+                      'located_in_entity_id':
+                          data['located_in_entity_id']?.toString() ?? '',
                     };
                   }).toList();
                 });
@@ -978,9 +981,24 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
             .listen((snapshot) {
               if (!mounted) return;
               setState(() {
-                _relationships = snapshot.docs
-                    .map((doc) => doc.data())
-                    .toList();
+                _relationships = snapshot.docs.map((doc) {
+                  final data = doc.data();
+                  return {
+                    'id': doc.id,
+                    'from_entity_id':
+                        data['from_entity_id']?.toString() ?? '',
+                    'to_entity_id': data['to_entity_id']?.toString() ?? '',
+                    'from_entity': data['from_entity']?.toString() ?? '',
+                    'to_entity': data['to_entity']?.toString() ?? '',
+                    'type': data['type']?.toString() ??
+                        data['description']?.toString() ??
+                        'related',
+                    'summary': data['summary']?.toString() ??
+                        data['description']?.toString() ??
+                        '',
+                    'labels': data['labels'] ?? const [],
+                  };
+                }).toList();
               });
             });
       }
@@ -2998,12 +3016,42 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
       navigatorKey: _navigatorKey,
       title: 'Brainiac',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF5B6CFF),
+          secondary: const Color(0xFFFF8A65),
+          tertiary: const Color(0xFF26A69A),
+          brightness: Brightness.light,
+        ),
         useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF5B6CFF),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: false,
+        ),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+          ),
+        ),
+        chipTheme: const ChipThemeData(
+          selectedColor: Color(0xFF5B6CFF),
+          checkmarkColor: Colors.white,
+        ),
       ),
       home: Scaffold(
         appBar: AppBar(
           title: const Text('Brainiac'),
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF5B6CFF), Color(0xFF7C4DFF), Color(0xFFFF8A65)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+            ),
+          ),
           actions: [
             IconButton(
               tooltip: 'Open master calendar',
