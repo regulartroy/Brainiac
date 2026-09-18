@@ -14,6 +14,7 @@ import 'js_bridge.dart' as js_bridge;
 import 'services/brain_agent_service.dart';
 import 'services/pruning_service.dart';
 import 'services/wisdom_service.dart';
+import 'app_version.dart';
 import 'screens/inspect_dashboard.dart';
 
 void main() async {
@@ -3904,6 +3905,20 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
                 ),
               ),
           ],
+        ),
+        bottomNavigationBar: SafeArea(
+          minimum: const EdgeInsets.only(bottom: 4),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              kBuildLabel,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 11,
+              ),
+            ),
+          ),
         ),
       ),
     );
