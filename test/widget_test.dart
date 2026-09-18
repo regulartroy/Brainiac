@@ -1,22 +1,16 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+// Basic shell smoke test for the graph-only Brainiac home.
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:brainiac/main.dart';
 
 void main() {
-  testWidgets('SecondBrainApp renders the main app shell', (tester) async {
+  testWidgets('SecondBrainApp renders the graph shell home', (tester) async {
     await tester.pumpWidget(const SecondBrainApp());
 
-    expect(find.text('Brainiac Test'), findsOneWidget);
-    expect(
-      find.text('Ready — your memory is compressed into insight'),
-      findsOneWidget,
-    );
+    expect(find.text('Brainiac'), findsWidgets);
+    expect(find.text('Ready — shared memory graph'), findsOneWidget);
+    expect(find.text('Entities'), findsOneWidget);
+    expect(find.text('Ask Brainiac'), findsNothing);
+    expect(find.text('Wisdom stream'), findsNothing);
   });
 }

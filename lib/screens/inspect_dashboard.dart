@@ -14,12 +14,16 @@ class InspectDashboardPage extends StatefulWidget {
     required this.relationships,
     required this.tasks,
     required this.wisdomService,
+    this.embedded = false,
   });
 
   final List<Map<String, dynamic>> entities;
   final List<Map<String, dynamic>> relationships;
   final List<Map<String, dynamic>> tasks;
   final WisdomService wisdomService;
+
+  /// When true, render as a body widget (no Scaffold) for use as app home.
+  final bool embedded;
 
   @override
   State<InspectDashboardPage> createState() => _InspectDashboardPageState();
@@ -499,38 +503,62 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     );
   }
 
+  Widget _buildTabBar() {
+    return TabBar(
+      controller: _tabs,
+      isScrollable: true,
+      tabs: const [
+        Tab(text: 'Entities'),
+        Tab(text: 'Relationships'),
+        Tab(text: 'Appointments'),
+        Tab(text: 'Priorities'),
+      ],
+    );
+  }
+
+  Widget _buildDashboardBody(BuildContext context) {
+    return Column(
+      children: [
+        _buildCountsStrip(context),
+        Expanded(
+          child: TabBarView(
+            controller: _tabs,
+            children: [
+              _buildEntitiesTab(),
+              _buildRelationshipsTab(),
+              _buildAppointmentsTab(),
+              _buildPrioritiesTab(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return Column(
+        children: [
+          Material(
+            color: Theme.of(context).colorScheme.surface,
+            elevation: 0,
+            child: _buildTabBar(),
+          ),
+          Expanded(child: _buildDashboardBody(context)),
+        ],
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Inspect'),
-        bottom: TabBar(
-          controller: _tabs,
-          isScrollable: true,
-          tabs: const [
-            Tab(text: 'Entities'),
-            Tab(text: 'Relationships'),
-            Tab(text: 'Appointments'),
-            Tab(text: 'Priorities'),
-          ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(kTextTabBarHeight),
+          child: _buildTabBar(),
         ),
       ),
-      body: Column(
-        children: [
-          _buildCountsStrip(context),
-          Expanded(
-            child: TabBarView(
-              controller: _tabs,
-              children: [
-                _buildEntitiesTab(),
-                _buildRelationshipsTab(),
-                _buildAppointmentsTab(),
-                _buildPrioritiesTab(),
-              ],
-            ),
-          ),
-        ],
-      ),
+      body: _buildDashboardBody(context),
     );
   }
 }
