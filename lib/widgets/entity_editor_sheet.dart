@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../models/entity_roles.dart';
 import '../models/entity_type.dart';
 import '../services/pruning_service.dart';
 import 'entity_links_section.dart';
@@ -46,11 +47,16 @@ class _EntityEditorSheetState extends State<_EntityEditorSheet> {
   late final TextEditingController _summary;
   late final TextEditingController _address;
   late EntityType _type;
+  late List<String> _roles;
   String? _locatedInId;
   bool _saving = false;
   String? _error;
 
   bool get _isEdit => widget.existing != null;
+
+  bool get _alsoClient => _roles.contains(EntityRoles.client);
+
+  bool get _showAlsoClientToggle => EntityRoles.canToggleClientRole(_type);
 
   @override
   void initState() {
@@ -60,6 +66,7 @@ class _EntityEditorSheetState extends State<_EntityEditorSheet> {
     _summary = TextEditingController(text: (e?['summary'] ?? '').toString());
     _address = TextEditingController(text: (e?['address'] ?? '').toString());
     _type = EntityType.parse(e?['type']?.toString());
+    _roles = List<String>.from(EntityRoles.parse(e?['roles']));
     final loc = (e?['located_in_entity_id'] ?? '').toString();
     _locatedInId = loc.isEmpty ? null : loc;
   }
@@ -84,6 +91,26 @@ class _EntityEditorSheetState extends State<_EntityEditorSheet> {
       );
   }
 
+  void _onTypeSelected(EntityType t) {
+    setState(() {
+      _type = t;
+      // Primary type client already means client — drop redundant role.
+      if (t == EntityType.client) {
+        _roles = EntityRoles.withRole(
+          _roles,
+          role: EntityRoles.client,
+          enabled: false,
+        );
+      } else if (!EntityRoles.canToggleClientRole(t)) {
+        _roles = EntityRoles.withRole(
+          _roles,
+          role: EntityRoles.client,
+          enabled: false,
+        );
+      }
+    });
+  }
+
   Future<void> _save() async {
     final name = _name.text.trim();
     if (name.isEmpty) {
@@ -106,11 +133,20 @@ class _EntityEditorSheetState extends State<_EntityEditorSheet> {
         return;
       }
 
+      // Persist roles only when the primary type supports facets.
+      final rolesToSave = _type == EntityType.client
+          ? <String>[]
+          : List<String>.from(_roles);
+
       final data = <String, dynamic>{
         'name': name,
         'type': _type.firestoreValue,
         'summary': _summary.text.trim(),
         'last_updated': FieldValue.serverTimestamp(),
+        if (rolesToSave.isEmpty)
+          'roles': FieldValue.delete()
+        else
+          'roles': rolesToSave,
       };
 
       if (_type.isPlace) {
@@ -188,10 +224,32 @@ class _EntityEditorSheetState extends State<_EntityEditorSheet> {
                   type: t,
                   selected: _type == t,
                   compact: true,
-                  onSelected: (_) => setState(() => _type = t),
+                  onSelected: (_) => _onTypeSelected(t),
                 );
               }).toList(),
             ),
+            if (_showAlsoClientToggle) ...[
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Also a client'),
+                subtitle: Text(
+                  _type == EntityType.venue
+                      ? 'Keep as venue; add a client facet (e.g. freelance venue)'
+                      : 'Add a client facet without changing primary type',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                value: _alsoClient,
+                onChanged: (v) => setState(() {
+                  _roles = EntityRoles.withRole(
+                    _roles,
+                    role: EntityRoles.client,
+                    enabled: v,
+                  );
+                }),
+              ),
+            ],
             const SizedBox(height: 12),
             TextField(
               controller: _summary,
@@ -255,6 +313,7 @@ class _EntityEditorSheetState extends State<_EntityEditorSheet> {
                       ? (widget.existing?['name'] ?? '')
                       : _name.text.trim(),
                   'type': _type.firestoreValue,
+                  'roles': _roles,
                 },
                 allEntities: widget.allEntities,
                 relationships: widget.relationships,

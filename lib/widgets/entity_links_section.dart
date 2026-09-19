@@ -157,7 +157,7 @@ class EntityLinksSection extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 4),
             child: Text(
               canAdd
-                  ? 'No links yet — add works-at, client-of, or knows.'
+                  ? 'No links yet — add freelances-for, works-at, client-of, or knows.'
                   : 'No links involving this entity.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
@@ -236,7 +236,10 @@ class _AddLinkDialogState extends State<_AddLinkDialog> {
   @override
   void initState() {
     super.initState();
-    _type = widget.allowedTypes.first;
+    _type = RelationshipType.defaultForSource(widget.sourceType);
+    if (!widget.allowedTypes.contains(_type)) {
+      _type = widget.allowedTypes.first;
+    }
   }
 
   List<Map<String, dynamic>> get _targets {
@@ -286,6 +289,24 @@ class _AddLinkDialogState extends State<_AddLinkDialog> {
                 );
               }).toList(),
             ),
+            if (widget.allowedTypes.contains(RelationshipType.freelancesFor) &&
+                _type == RelationshipType.freelancesFor)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Recommended for venue / client freelance work.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            if (widget.allowedTypes.contains(RelationshipType.worksAt) &&
+                _type == RelationshipType.worksAt)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Use for true employment; prefer Freelances for venues.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
             const SizedBox(height: 12),
             TextField(
               decoration: const InputDecoration(
