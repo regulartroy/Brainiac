@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../models/entity_type.dart';
 import '../services/pruning_service.dart';
+import 'entity_links_section.dart';
 import 'entity_type_chip.dart';
 
 /// Create or edit an entity with a forced canonical type.
@@ -10,6 +11,7 @@ Future<bool> showEntityEditorSheet(
   BuildContext context, {
   Map<String, dynamic>? existing,
   required List<Map<String, dynamic>> allEntities,
+  List<Map<String, dynamic>> relationships = const [],
 }) async {
   final result = await showModalBottomSheet<bool>(
     context: context,
@@ -18,6 +20,7 @@ Future<bool> showEntityEditorSheet(
     builder: (ctx) => _EntityEditorSheet(
       existing: existing,
       allEntities: allEntities,
+      relationships: relationships,
     ),
   );
   return result == true;
@@ -27,10 +30,12 @@ class _EntityEditorSheet extends StatefulWidget {
   const _EntityEditorSheet({
     this.existing,
     required this.allEntities,
+    required this.relationships,
   });
 
   final Map<String, dynamic>? existing;
   final List<Map<String, dynamic>> allEntities;
+  final List<Map<String, dynamic>> relationships;
 
   @override
   State<_EntityEditorSheet> createState() => _EntityEditorSheetState();
@@ -140,6 +145,9 @@ class _EntityEditorSheetState extends State<_EntityEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
+    final existingId = (widget.existing?['id'] ?? '').toString();
+    final showLinks = _isEdit && existingId.isNotEmpty;
+
     return Padding(
       padding: EdgeInsets.fromLTRB(20, 8, 20, 20 + bottom),
       child: SingleChildScrollView(
@@ -202,9 +210,7 @@ class _EntityEditorSheetState extends State<_EntityEditorSheet> {
                       ? 'Address (optional)'
                       : 'Address / note (optional)',
                   border: const OutlineInputBorder(),
-                  helperText: _type == EntityType.person
-                      ? null
-                      : 'Places only — never used for people',
+                  helperText: 'Places only — never used for people',
                 ),
               ),
             ],
@@ -214,6 +220,7 @@ class _EntityEditorSheetState extends State<_EntityEditorSheet> {
                 decoration: const InputDecoration(
                   labelText: 'Located in (area)',
                   border: OutlineInputBorder(),
+                  helperText: 'Venue → town/area (not a relationship edge)',
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String?>(
@@ -235,6 +242,22 @@ class _EntityEditorSheetState extends State<_EntityEditorSheet> {
                     onChanged: (v) => setState(() => _locatedInId = v),
                   ),
                 ),
+              ),
+            ],
+            if (showLinks) ...[
+              const SizedBox(height: 16),
+              const Divider(),
+              EntityLinksSection(
+                entity: {
+                  ...?widget.existing,
+                  'id': existingId,
+                  'name': _name.text.trim().isEmpty
+                      ? (widget.existing?['name'] ?? '')
+                      : _name.text.trim(),
+                  'type': _type.firestoreValue,
+                },
+                allEntities: widget.allEntities,
+                relationships: widget.relationships,
               ),
             ],
             if (_error != null) ...[
