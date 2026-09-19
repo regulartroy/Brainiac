@@ -1538,24 +1538,33 @@ class _SecondBrainAppState extends State<SecondBrainApp> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 4),
-                  ...entities
-                      .take(8)
-                      .map(
-                        (entity) => ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(
-                            entity['type'] == 'person'
-                                ? Icons.person_outline
-                                : Icons.hub_outlined,
-                          ),
-                          title: Text(entity['name'].toString()),
-                          subtitle: Text(
-                            '${entity['type']} • ${entity['attention_status']}'
-                            '${(entity['current_focus'] ?? '').toString().isEmpty ? '' : ' • ${entity['current_focus']}'}',
-                          ),
-                        ),
+                  ...entities.take(8).map((entity) {
+                    final type = (entity['type'] ?? '').toString().trim();
+                    final status =
+                        (entity['attention_status'] ?? '').toString().trim();
+                    final focus =
+                        (entity['current_focus'] ?? '').toString().trim();
+                    final subtitleParts = <String>[
+                      if (type.isNotEmpty) type,
+                      if (status.isNotEmpty &&
+                          status.toLowerCase() != 'unknown')
+                        status,
+                      if (focus.isNotEmpty) focus,
+                    ];
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        entity['type'] == 'person'
+                            ? Icons.person_outline
+                            : Icons.hub_outlined,
                       ),
+                      title: Text(entity['name'].toString()),
+                      subtitle: subtitleParts.isEmpty
+                          ? null
+                          : Text(subtitleParts.join(' • ')),
+                    );
+                  }),
                 ],
                 const SizedBox(height: 16),
                 FilledButton.icon(

@@ -484,7 +484,7 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
   Widget _buildEntityCard(Map<String, dynamic> entity) {
     final name = (entity['name'] ?? '').toString();
     final type = EntityType.parse(entity['type']?.toString());
-    final status = (entity['attention_status'] ?? 'unknown').toString();
+    final status = (entity['attention_status'] ?? '').toString().trim();
     final summary = (entity['summary'] ?? '').toString();
     final address = (entity['address'] ?? '').toString();
     final locatedIn = (entity['located_in_entity_id'] ?? '').toString();
@@ -495,8 +495,11 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     if (type == EntityType.venue && locatedIn.isNotEmpty) {
       placeBits.add('in ${_entityNameById(locatedIn)}');
     }
+    // Omit blank/unknown attention_status — type is already shown via chip/colour/icon.
+    final showStatus =
+        status.isNotEmpty && status.toLowerCase() != 'unknown';
     final subtitleParts = <String>[
-      status,
+      if (showStatus) status,
       if (summary.isNotEmpty) summary,
       ...placeBits,
     ];
@@ -520,11 +523,13 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
           name,
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
-        subtitle: Text(
-          subtitleParts.join(' · '),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
+        subtitle: subtitleParts.isEmpty
+            ? null
+            : Text(
+                subtitleParts.join(' · '),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
         trailing: EntityTypeChip(
           type: type,
           compact: true,
@@ -729,9 +734,15 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
           ...attention.map((entity) {
             final name = (entity['name'] ?? '').toString();
             final status =
-                (entity['attention_status'] ?? 'unknown').toString();
+                (entity['attention_status'] ?? '').toString().trim();
             final focus = (entity['current_focus'] ?? '').toString();
             final type = EntityType.parse(entity['type']?.toString());
+            final showStatus =
+                status.isNotEmpty && status.toLowerCase() != 'unknown';
+            final subtitleParts = <String>[
+              if (showStatus) status,
+              if (focus.isNotEmpty) focus,
+            ];
             return Card(
               color: type.softBackground,
               child: ListTile(
@@ -743,11 +754,13 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
                   child: Icon(type.icon, size: 16),
                 ),
                 title: Text(name),
-                subtitle: Text(
-                  focus.isEmpty ? status : '$status · $focus',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                subtitle: subtitleParts.isEmpty
+                    ? null
+                    : Text(
+                        subtitleParts.join(' · '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _openEntityDetail(context, name),
               ),
