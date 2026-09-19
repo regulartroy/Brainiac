@@ -4,7 +4,9 @@ import '../models/entity_type.dart';
 import '../services/wisdom_service.dart';
 import '../widgets/curiosity_panel.dart';
 import '../widgets/entity_editor_sheet.dart';
+import '../widgets/entity_links_section.dart';
 import '../widgets/entity_type_chip.dart';
+import '../widgets/venue_area_chip.dart';
 
 /// Thin, mostly read-only inspect surface over the live life graph.
 ///
@@ -107,15 +109,6 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     };
   }
 
-  String _entityNameById(String id) {
-    for (final e in widget.entities) {
-      if ((e['id'] ?? '').toString() == id) {
-        return (e['name'] ?? id).toString();
-      }
-    }
-    return id;
-  }
-
   List<Map<String, dynamic>> _linkedTasksFor(String label) {
     final lower = label.toLowerCase();
     return _openTasks.where((task) {
@@ -125,19 +118,11 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     }).toList();
   }
 
-  List<Map<String, dynamic>> _edgesFor(String label) {
-    final lower = label.toLowerCase();
-    return widget.relationships.where((rel) {
-      final from = (rel['from_entity'] ?? '').toString().toLowerCase();
-      final to = (rel['to_entity'] ?? '').toString().toLowerCase();
-      return from == lower || to == lower;
-    }).toList();
-  }
-
   Future<void> _createEntity() async {
     await showEntityEditorSheet(
       context,
       allEntities: widget.entities,
+      relationships: widget.relationships,
     );
   }
 
@@ -146,19 +131,18 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
       context,
       existing: entity,
       allEntities: widget.entities,
+      relationships: widget.relationships,
     );
   }
 
   void _openEntityDetail(BuildContext context, String label) {
     final entity = _entityForLabel(label);
     final linkedTasks = _linkedTasksFor(label);
-    final edges = _edgesFor(label);
     final summary = (entity['summary'] ?? '').toString();
     final focus = (entity['current_focus'] ?? '').toString();
     final status = (entity['attention_status'] ?? 'unknown').toString();
     final type = EntityType.parse(entity['type']?.toString());
     final address = (entity['address'] ?? '').toString();
-    final locatedIn = (entity['located_in_entity_id'] ?? '').toString();
 
     showModalBottomSheet<void>(
       context: context,
@@ -215,9 +199,12 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
                     const SizedBox(height: 8),
                     Text('Address: $address'),
                   ],
-                  if (type == EntityType.venue && locatedIn.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text('Located in: ${_entityNameById(locatedIn)}'),
+                  if (type == EntityType.venue) ...[
+                    const SizedBox(height: 10),
+                    VenueAreaChip(
+                      venue: entity,
+                      allEntities: widget.entities,
+                    ),
                   ],
                   const SizedBox(height: 16),
                   Text(
@@ -238,30 +225,11 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
                           ),
                         ),
                   const SizedBox(height: 16),
-                  Text(
-                    'Relationships (${edges.length})',
-                    style: Theme.of(sheetContext)
-                        .textTheme
-                        .titleSmall
-                        ?.copyWith(fontWeight: FontWeight.bold),
+                  EntityLinksSection(
+                    entity: entity,
+                    allEntities: widget.entities,
+                    relationships: widget.relationships,
                   ),
-                  const SizedBox(height: 6),
-                  if (edges.isEmpty)
-                    const Text('No related edges.')
-                  else
-                    ...edges.take(12).map((rel) {
-                      final from = (rel['from_entity'] ?? '').toString();
-                      final to = (rel['to_entity'] ?? '').toString();
-                      final relType = (rel['type'] ??
-                              rel['summary'] ??
-                              rel['description'] ??
-                              'related')
-                          .toString();
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text('• $from → $to ($relType)'),
-                      );
-                    }),
                   const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -487,21 +455,13 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     final status = (entity['attention_status'] ?? '').toString().trim();
     final summary = (entity['summary'] ?? '').toString();
     final address = (entity['address'] ?? '').toString();
-    final locatedIn = (entity['located_in_entity_id'] ?? '').toString();
-    final placeBits = <String>[];
-    if (type.isPlace && address.isNotEmpty) {
-      placeBits.add(address);
-    }
-    if (type == EntityType.venue && locatedIn.isNotEmpty) {
-      placeBits.add('in ${_entityNameById(locatedIn)}');
-    }
     // Omit blank/unknown attention_status — type is already shown via chip/colour/icon.
     final showStatus =
         status.isNotEmpty && status.toLowerCase() != 'unknown';
     final subtitleParts = <String>[
       if (showStatus) status,
       if (summary.isNotEmpty) summary,
-      ...placeBits,
+      if (type.isPlace && address.isNotEmpty) address,
     ];
     return Card(
       elevation: 0,
@@ -512,31 +472,62 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
           color: type.color.withValues(alpha: 0.35),
         ),
       ),
-      child: ListTile(
-        dense: true,
-        leading: CircleAvatar(
-          backgroundColor: type.color,
-          foregroundColor: Colors.white,
-          child: Icon(type.icon, size: 18),
-        ),
-        title: Text(
-          name,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: subtitleParts.isEmpty
-            ? null
-            : Text(
-                subtitleParts.join(' · '),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-        trailing: EntityTypeChip(
-          type: type,
-          compact: true,
-          showIcon: false,
-        ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
         onTap: () => _openEntityDetail(context, name),
         onLongPress: () => _editEntity(entity),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: type.color,
+                foregroundColor: Colors.white,
+                child: Icon(type.icon, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            name,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        EntityTypeChip(
+                          type: type,
+                          compact: true,
+                          showIcon: false,
+                        ),
+                      ],
+                    ),
+                    if (subtitleParts.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitleParts.join(' · '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    if (type == EntityType.venue) ...[
+                      const SizedBox(height: 6),
+                      VenueAreaChip(
+                        venue: entity,
+                        allEntities: widget.entities,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

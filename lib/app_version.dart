@@ -3,7 +3,7 @@
 /// [kAppVersion] must stay in sync with `pubspec.yaml` `version:`.
 /// [kGitSha] is injected at web release build via
 /// `--dart-define=GIT_SHA=$(git rev-parse --short HEAD)`.
-const String kAppVersion = '1.3.2+6';
+const String kAppVersion = '1.4.0+7';
 const String kGitSha = String.fromEnvironment('GIT_SHA', defaultValue: 'dev');
 
 String get kBuildLabel => 'v$kAppVersion · $kGitSha';
