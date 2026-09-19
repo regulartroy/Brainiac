@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../models/entity_roles.dart';
 import '../models/entity_type.dart';
 import '../services/wisdom_service.dart';
 import '../widgets/curiosity_panel.dart';
 import '../widgets/entity_editor_sheet.dart';
 import '../widgets/entity_links_section.dart';
+import '../widgets/client_role_chip.dart';
 import '../widgets/entity_type_chip.dart';
 import '../widgets/venue_area_chip.dart';
 
@@ -82,13 +84,17 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
 
   List<Map<String, dynamic>> get _filteredEntities {
     if (_entityTypeFilter == 'all') return widget.entities;
-    return widget.entities
-        .where(
-          (e) =>
-              EntityType.parse(e['type']?.toString()).firestoreValue ==
-              _entityTypeFilter,
-        )
-        .toList();
+    return widget.entities.where((e) {
+      final typeKey =
+          EntityType.parse(e['type']?.toString()).firestoreValue;
+      if (typeKey == _entityTypeFilter) return true;
+      // Client filter also includes venues/orgs/people with client role.
+      if (_entityTypeFilter == EntityType.client.firestoreValue &&
+          EntityRoles.hasClientRole(e)) {
+        return true;
+      }
+      return false;
+    }).toList();
   }
 
   Map<String, dynamic> _entityForLabel(String label) {
@@ -175,6 +181,10 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
                         ),
                       ),
                       EntityTypeChip(type: type, compact: true),
+                      if (EntityRoles.hasClientRole(entity)) ...[
+                        const SizedBox(width: 6),
+                        const ClientRoleChip(compact: true),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -504,6 +514,10 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
                           compact: true,
                           showIcon: false,
                         ),
+                        if (EntityRoles.hasClientRole(entity)) ...[
+                          const SizedBox(width: 4),
+                          const ClientRoleChip(compact: true),
+                        ],
                       ],
                     ),
                     if (subtitleParts.isNotEmpty) ...[

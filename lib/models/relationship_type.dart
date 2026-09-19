@@ -5,12 +5,15 @@ import 'entity_type.dart';
 /// [located_in] stays on the venue entity as `located_in_entity_id`,
 /// not as a relationships document.
 enum RelationshipType {
+  freelancesFor,
   worksAt,
   clientOf,
   knows;
 
   String get firestoreValue {
     switch (this) {
+      case RelationshipType.freelancesFor:
+        return 'freelances_for';
       case RelationshipType.worksAt:
         return 'works_at';
       case RelationshipType.clientOf:
@@ -22,6 +25,8 @@ enum RelationshipType {
 
   String get label {
     switch (this) {
+      case RelationshipType.freelancesFor:
+        return 'Freelances for';
       case RelationshipType.worksAt:
         return 'Works at';
       case RelationshipType.clientOf:
@@ -31,9 +36,11 @@ enum RelationshipType {
     }
   }
 
-  /// Short verb for readable edge lines, e.g. "Tom works at Concorde 2".
+  /// Short verb for readable edge lines, e.g. "Tom freelances for Concorde 2".
   String get verb {
     switch (this) {
+      case RelationshipType.freelancesFor:
+        return 'freelances for';
       case RelationshipType.worksAt:
         return 'works at';
       case RelationshipType.clientOf:
@@ -46,6 +53,8 @@ enum RelationshipType {
   /// Entity types allowed as the *from* side when adding a link.
   List<EntityType> get allowedFromTypes {
     switch (this) {
+      case RelationshipType.freelancesFor:
+        return const [EntityType.person];
       case RelationshipType.worksAt:
         return const [EntityType.person];
       case RelationshipType.clientOf:
@@ -56,8 +65,13 @@ enum RelationshipType {
   }
 
   /// Entity types allowed as the *to* side.
+  ///
+  /// Role-client venues/orgs still have primary type venue/org, so they
+  /// remain eligible via those types.
   List<EntityType> get allowedToTypes {
     switch (this) {
+      case RelationshipType.freelancesFor:
+        return const [EntityType.org, EntityType.venue, EntityType.client];
       case RelationshipType.worksAt:
         return const [EntityType.org, EntityType.venue, EntityType.client];
       case RelationshipType.clientOf:
@@ -72,6 +86,10 @@ enum RelationshipType {
   static RelationshipType? tryParse(String? raw) {
     final t = (raw ?? '').trim().toLowerCase();
     switch (t) {
+      case 'freelances_for':
+      case 'freelances for':
+      case 'freelance':
+        return RelationshipType.freelancesFor;
       case 'works_at':
       case 'works at':
         return RelationshipType.worksAt;
@@ -89,7 +107,16 @@ enum RelationshipType {
       tryParse(raw) ?? RelationshipType.knows;
 
   /// Types the user may create *from* this entity type.
+  /// Order prefers freelances_for ahead of works_at for venue/client targets.
   static List<RelationshipType> forSourceEntity(EntityType source) {
     return all.where((t) => t.allowedFromTypes.contains(source)).toList();
+  }
+
+  /// Preferred default when adding a link from [source].
+  /// Freelances-for is the default for people (venue/client freelance work).
+  static RelationshipType defaultForSource(EntityType source) {
+    final opts = forSourceEntity(source);
+    if (opts.isEmpty) return RelationshipType.knows;
+    return opts.first;
   }
 }
