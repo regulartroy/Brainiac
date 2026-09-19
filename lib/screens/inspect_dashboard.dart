@@ -413,136 +413,165 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
     );
   }
 
-  Widget _buildEntitiesTab() {
+  Widget _buildEntityTypeFilters() {
     final filterTypes = <String>[
       'all',
       ...EntityType.all.map((t) => t.firestoreValue),
     ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Row(
+        children: filterTypes.map((typeKey) {
+          if (typeKey == 'all') {
+            final selected = _entityTypeFilter == 'all';
+            return Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: FilterChip(
+                label: const Text('All'),
+                selected: selected,
+                onSelected: (_) => setState(() => _entityTypeFilter = 'all'),
+              ),
+            );
+          }
+          final t = EntityType.parse(typeKey);
+          final selected = _entityTypeFilter == typeKey;
+          return Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: EntityTypeChip(
+              type: t,
+              selected: selected,
+              compact: true,
+              onSelected: (_) => setState(() => _entityTypeFilter = typeKey),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildEmptyEntities() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.inbox_outlined,
+              size: 40,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.entities.isEmpty
+                  ? 'Graph is empty — add an entity to begin.'
+                  : 'No entities in this filter.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _createEntity,
+              icon: const Icon(Icons.add),
+              label: const Text('Add entity'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEntityCard(Map<String, dynamic> entity) {
+    final name = (entity['name'] ?? '').toString();
+    final type = EntityType.parse(entity['type']?.toString());
+    final status = (entity['attention_status'] ?? 'unknown').toString();
+    final summary = (entity['summary'] ?? '').toString();
+    final address = (entity['address'] ?? '').toString();
+    final locatedIn = (entity['located_in_entity_id'] ?? '').toString();
+    final placeBits = <String>[];
+    if (type.isPlace && address.isNotEmpty) {
+      placeBits.add(address);
+    }
+    if (type == EntityType.venue && locatedIn.isNotEmpty) {
+      placeBits.add('in ${_entityNameById(locatedIn)}');
+    }
+    final subtitleParts = <String>[
+      status,
+      if (summary.isNotEmpty) summary,
+      ...placeBits,
+    ];
+    return Card(
+      elevation: 0,
+      color: type.softBackground,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: type.color.withValues(alpha: 0.35),
+        ),
+      ),
+      child: ListTile(
+        dense: true,
+        leading: CircleAvatar(
+          backgroundColor: type.color,
+          foregroundColor: Colors.white,
+          child: Icon(type.icon, size: 18),
+        ),
+        title: Text(
+          name,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          subtitleParts.join(' · '),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: EntityTypeChip(
+          type: type,
+          compact: true,
+          showIcon: false,
+        ),
+        onTap: () => _openEntityDetail(context, name),
+        onLongPress: () => _editEntity(entity),
+      ),
+    );
+  }
+
+  /// Home/Entities tab: one continuous scroll — counts, curiosity, filters,
+  /// and the entity list share the same CustomScrollView so short viewports
+  /// are not starved by permanently pinned chrome.
+  Widget _buildEntitiesTab() {
     final entities = _filteredEntities;
 
-    return Column(
-      children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-          child: Row(
-            children: filterTypes.map((typeKey) {
-              if (typeKey == 'all') {
-                final selected = _entityTypeFilter == 'all';
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: FilterChip(
-                    label: const Text('All'),
-                    selected: selected,
-                    onSelected: (_) =>
-                        setState(() => _entityTypeFilter = 'all'),
-                  ),
-                );
-              }
-              final t = EntityType.parse(typeKey);
-              final selected = _entityTypeFilter == typeKey;
-              return Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: EntityTypeChip(
-                  type: t,
-                  selected: selected,
-                  compact: true,
-                  onSelected: (_) =>
-                      setState(() => _entityTypeFilter = typeKey),
-                ),
-              );
-            }).toList(),
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(child: _buildCountsStrip(context)),
+        SliverToBoxAdapter(
+          child: CuriosityPanel(
+            entities: widget.entities,
+            relationships: widget.relationships,
           ),
         ),
-        Expanded(
-          child: entities.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.inbox_outlined,
-                        size: 40,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.entities.isEmpty
-                            ? 'Graph is empty — add an entity to begin.'
-                            : 'No entities in this filter.',
-                      ),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: _createEntity,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add entity'),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: entities.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 6),
-                  itemBuilder: (context, index) {
-                    final entity = entities[index];
-                    final name = (entity['name'] ?? '').toString();
-                    final type = EntityType.parse(entity['type']?.toString());
-                    final status =
-                        (entity['attention_status'] ?? 'unknown').toString();
-                    final summary = (entity['summary'] ?? '').toString();
-                    final address = (entity['address'] ?? '').toString();
-                    final locatedIn =
-                        (entity['located_in_entity_id'] ?? '').toString();
-                    final placeBits = <String>[];
-                    if (type.isPlace && address.isNotEmpty) {
-                      placeBits.add(address);
-                    }
-                    if (type == EntityType.venue && locatedIn.isNotEmpty) {
-                      placeBits.add('in ${_entityNameById(locatedIn)}');
-                    }
-                    final subtitleParts = <String>[
-                      status,
-                      if (summary.isNotEmpty) summary,
-                      ...placeBits,
-                    ];
-                    return Card(
-                      elevation: 0,
-                      color: type.softBackground,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                          color: type.color.withValues(alpha: 0.35),
-                        ),
-                      ),
-                      child: ListTile(
-                        dense: true,
-                        leading: CircleAvatar(
-                          backgroundColor: type.color,
-                          foregroundColor: Colors.white,
-                          child: Icon(type.icon, size: 18),
-                        ),
-                        title: Text(
-                          name,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Text(
-                          subtitleParts.join(' · '),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: EntityTypeChip(
-                          type: type,
-                          compact: true,
-                          showIcon: false,
-                        ),
-                        onTap: () => _openEntityDetail(context, name),
-                        onLongPress: () => _editEntity(entity),
-                      ),
-                    );
-                  },
-                ),
-        ),
+        SliverToBoxAdapter(child: _buildEntityTypeFilters()),
+        if (entities.isEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: _buildEmptyEntities(),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  if (index.isOdd) {
+                    return const SizedBox(height: 6);
+                  }
+                  return _buildEntityCard(entities[index ~/ 2]);
+                },
+                childCount: entities.isEmpty ? 0 : entities.length * 2 - 1,
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -744,24 +773,15 @@ class _InspectDashboardPageState extends State<InspectDashboardPage>
   }
 
   Widget _buildDashboardBody(BuildContext context) {
-    return Column(
+    // TabBarView fills remaining height; Entities tab scrolls as one page
+    // (headers live inside that CustomScrollView, not pinned above it).
+    return TabBarView(
+      controller: _tabs,
       children: [
-        _buildCountsStrip(context),
-        CuriosityPanel(
-          entities: widget.entities,
-          relationships: widget.relationships,
-        ),
-        Expanded(
-          child: TabBarView(
-            controller: _tabs,
-            children: [
-              _buildEntitiesTab(),
-              _buildRelationshipsTab(),
-              _buildAppointmentsTab(),
-              _buildPrioritiesTab(),
-            ],
-          ),
-        ),
+        _buildEntitiesTab(),
+        _buildRelationshipsTab(),
+        _buildAppointmentsTab(),
+        _buildPrioritiesTab(),
       ],
     );
   }
